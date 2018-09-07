@@ -1,30 +1,48 @@
 extern crate failure;
 extern crate glob;
 extern crate itertools;
+#[macro_use]
+extern crate structopt;
 
 use itertools::Itertools;
 use std::collections::HashSet;
+use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::iter::FromIterator;
 use std::str::FromStr;
+use structopt::StructOpt;
+
+#[derive(StructOpt, Debug)]
+#[structopt(name = "check_approval")]
+struct Args {
+    target: String,
+    maintainers: Option<String>,
+}
 
 fn main() {
-    let target = "src/foo";
-    let file = BufReader::new(File::open("MAINTAINERS").unwrap());
+    let args = Args::from_args();
+    println!("Args: {:?}", args);
+
+    let maintainers = args
+        .maintainers
+        .as_ref()
+        .map(|x| x.as_str())
+        .unwrap_or("MAINTAINERS");
+    let file = BufReader::new(File::open(maintainers).unwrap());
     let rules: Vec<_> = file
         .lines()
         .map(|l| l.unwrap().parse::<Rule>().unwrap())
-        .filter(|rule| rule.pat.matches(target))
+        .filter(|rule| rule.pat.matches(&args.target))
         .collect();
     println!("Rules: {:?}", rules);
-    let approvals = HashSet::from_iter(vec!["akio".to_string()]);
+
+    let approvals = HashSet::from_iter(vec![]);
     println!("Approvals: {:?}", approvals);
 
-    let mut fs = DNF::from_iter(rules).fixes(approvals);
-    fs.minimize();
-
-    println!("{:#?}", fs);
+    let mut fixes = DNF::from_iter(rules).fixes(approvals);
+    fixes.minimize();
+    print!("{}", fixes);
 }
 
 /// A rule is satisfied when any `n` members of `pop` approve.
@@ -62,6 +80,15 @@ impl FromStr for Rule {
 ///
 #[derive(Clone, Debug)]
 struct DNF(Vec<HashSet<String>>);
+
+impl fmt::Display for DNF {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for set in &self.0 {
+            writeln!(f, "{:?}", set)?;
+        }
+        Ok(())
+    }
+}
 
 impl IntoIterator for DNF {
     type Item = HashSet<String>;

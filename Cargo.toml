@@ -7,3 +7,5 @@ authors = ["Alex Sayers <alex.sayers@gmail.com>"]
 glob = "0.2.11"
 failure = "0.1.2"
 itertools = "0.7.8"
+clap = "2.32.0"
+structopt = "0.2.10"
