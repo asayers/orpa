@@ -1,0 +1,9 @@
+[package]
+name = "orpa"
+version = "0.1.0"
+authors = ["Alex Sayers <alex.sayers@gmail.com>"]
+
+[dependencies]
+glob = "0.2.11"
+failure = "0.1.2"
+itertools = "0.7.8"
