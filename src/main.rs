@@ -1,57 +1,62 @@
+#[macro_use]
 extern crate failure;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 extern crate glob;
 extern crate itertools;
 #[macro_use]
 extern crate structopt;
 
+mod reqs;
 mod rules;
 
 use rules::*;
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::iter::FromIterator;
+use std::path::Path;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 struct Args {
-    target: String,
+    targets: Vec<String>,
+    #[structopt(short = "m", long = "maintainers")]
     maintainers: Option<String>,
 }
 
-fn main() {
-    let args = Args::from_args();
-    eprintln!("Args: {:?}", args);
-
-    let maintainers = args
-        .maintainers
-        .as_ref()
-        .map(|x| x.as_str())
-        .unwrap_or("MAINTAINERS");
-    let file = BufReader::new(File::open(maintainers).unwrap());
-    let rules: Vec<_> = file
-        .lines()
-        .map(|l| l.unwrap())
-        .map(|mut l| {
-            if let Some(i) = l.find('#') {
-                l.truncate(i);
-            }
-            l
-        })
-        .filter(|l| !l.is_empty())
-        .map(|l| l.parse::<Rule>().unwrap())
-        .filter(|rule| rule.matches(&args.target))
-        .collect();
-    eprintln!("Matching rules: {:?}", rules);
-
-    let approvals = HashSet::from_iter(vec![]);
-    eprintln!("Approvals: {:?}", approvals);
-
-    let dnf = DNF::from_iter(rules);
-    if dnf.is_empty() {
-        eprintln!("WARN: Unsatisfiable rules!");
+impl Args {
+    fn maintainers_path(&self) -> &str {
+        self.maintainers
+            .as_ref()
+            .map(|x| x.as_str())
+            .unwrap_or("MAINTAINERS")
     }
-    let mut fixes = dnf.fixes(approvals);
-    fixes.minimize();
-    print!("{}", fixes);
+}
+
+fn main() {
+    env_logger::init();
+
+    let args = Args::from_args();
+    info!("Args: {:?}", args);
+
+    let maintainers_file = File::open(args.maintainers_path()).unwrap();
+    let ruleset = RuleSet::from_reader(maintainers_file).unwrap();
+
+    for target in &args.targets {
+        let mut reqs = ruleset.reqs_for(&Path::new(target));
+        info!("Rules: {:?}", reqs);
+
+        let approvals: HashSet<(String, Scrutiny)> = HashSet::from_iter(vec![]);
+        info!("Approvals: {:?}", approvals);
+
+        for (name, lvl) in approvals {
+            reqs.approve(name, lvl);
+        }
+
+        reqs.normalize();
+        if !reqs.is_satisfied() {
+            println!("{}: {:?}", target, reqs)
+        }
+    }
 }

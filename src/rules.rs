@@ -1,134 +1,102 @@
 use failure;
 use glob;
-use itertools::Itertools;
-use std::collections::HashSet;
+use reqs::*;
 use std::fmt;
-use std::iter::FromIterator;
+use std::io::{BufRead, BufReader, Read};
+use std::collections::HashSet;
+use std::path::Path;
 use std::str::FromStr;
 
-/// A rule is satisfied when any `n` members of `pop` approve.
-#[derive(Debug)]
-pub struct Rule {
-    pat: glob::Pattern,
-    pop: Vec<String>,
-    n: usize,
-}
+type Result<T> = ::std::result::Result<T, failure::Error>;
 
-impl Rule {
-    pub fn matches(&self, s: &str) -> bool {
-        self.pat.matches(s)
+pub struct RuleSet(Vec<Rule>);
+
+impl RuleSet {
+    pub fn from_reader(rdr: impl Read) -> Result<RuleSet> {
+        let mut rules = Vec::new();
+        for l in BufReader::new(rdr).lines() {
+            let mut l = l?;
+            if let Some(i) = l.find('#') {
+                l.truncate(i);
+            }
+            if l.is_empty() {
+                continue;
+            }
+            match l.parse::<Rule>() {
+                Ok(rule) => rules.push(rule),
+                Err(e) => error!("Couldn't parse rule {}: {}", l, e),
+            }
+        }
+        Ok(RuleSet(rules))
+    }
+
+    pub fn reqs_for(&self, path: &Path) -> Requirements {
+        let mut reqs = Requirements::new();
+        for rule in &self.0 {
+            if rule.pat.matches(&path.to_string_lossy()) {
+                reqs.add(rule.level, rule.n, rule.pop.clone());
+            }
+        }
+        reqs
     }
 }
 
-impl FromStr for Rule {
-    type Err = failure::Error;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct Scrutiny(usize);
 
-    fn from_str(line: &str) -> Result<Rule, failure::Error> {
-        let mut ws = line.split_whitespace();
-        let pat = glob::Pattern::new(ws.next().unwrap())?;
-        let n: usize = ws.next().unwrap().parse()?;
-        let pop = ws
-            .next()
-            .unwrap()
-            .split(',')
-            .map(|x| x.to_owned())
-            .collect();
-        Ok(Rule { pat, n, pop })
-    }
-}
-
-/// Sets of approvers in disjunct normal form.
-///
-/// * A rule can be represented in DNF; it lists the sets of approvers which would satisfy the
-///   rule.
-/// * A set of rules can be represented in DNF; it list of sets of approvers which would satisfy
-///   all the rules.
-/// * The potential "fixes" to the current set of approvers is also represented in DNF.
-///
-#[derive(Clone, Debug)]
-pub struct DNF(Vec<HashSet<String>>);
-
-impl fmt::Display for DNF {
+impl fmt::Display for Scrutiny {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for set in &self.0 {
-            writeln!(
-                f,
-                "{}",
-                String::from_iter(set.iter().map(|x| x.as_str()).intersperse(","))
-            )?;
+        for _ in 0..self.0 {
+            f.write_str("!")?
         }
         Ok(())
     }
 }
 
-impl IntoIterator for DNF {
-    type Item = HashSet<String>;
-    type IntoIter = ::std::vec::IntoIter<HashSet<String>>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
+impl FromStr for Scrutiny {
+    type Err = failure::Error;
 
-impl From<Rule> for DNF {
-    /// Represent a rule in DNF.
-    ///
-    /// eg. 2 of { A, B, C } => { A, B } or { A, C } or { B, C }
-    fn from(rule: Rule) -> DNF {
-        DNF(rule
-            .pop
-            .into_iter()
-            .combinations(rule.n)
-            .map(|x| HashSet::from_iter(x))
-            .collect())
-    }
-}
-
-impl FromIterator<Rule> for DNF {
-    /// Represent a set of rules in DNF.
-    fn from_iter<I: IntoIterator<Item = Rule>>(iter: I) -> DNF {
-        iter.into_iter().map(|rule| DNF::from(rule)).collect()
-    }
-}
-
-impl FromIterator<DNF> for DNF {
-    /// Merge the DNF representations of multiple rules.  Rules are combined as a conjuntion.
-    ///
-    /// eg. { A, B } and ({ C } or { D, E }) => { A, B, C } or { A, B, D, E }
-    fn from_iter<I: IntoIterator<Item = DNF>>(iter: I) -> DNF {
-        DNF(iter
-            .into_iter()
-            .multi_cartesian_product()
-            .map(|x| x.into_iter().flatten().collect())
-            .collect())
-    }
-}
-
-impl DNF {
-    // TODO: Remove sets which are a superset of another in the list
-    pub fn minimize(&mut self) {
-        self.0.sort_unstable_by_key(|x| x.len());
-        self.0.dedup();
-        let len = match self.0.first() {
-            Some(x) => x.len(),
-            None => 0,
-        };
-        self.0.retain(|x| x.len() == len);
-    }
-
-    /// The possible additions to `approvals` which would result in the requirements being met.
-    pub fn fixes(&self, approvals: HashSet<String>) -> DNF {
-        let mut ret = Vec::new();
-        for reqs in &self.0 {
-            ret.push(
-                reqs.difference(&approvals)
-                    .cloned()
-                    .collect::<HashSet<String>>(),
-            );
+    fn from_str(line: &str) -> Result<Scrutiny> {
+        if line.chars().all(|c| c == '!') {
+            Ok(Scrutiny(line.len()))
+        } else {
+            bail!("Scrutiny field should be made up of !s")
         }
-        DNF(ret)
     }
+}
 
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+/// A rule is satisfied when any `n` members of `pop` approve.
+#[derive(Debug, Clone)]
+pub struct Rule {
+    pub pat: glob::Pattern,
+    pub pop: HashSet<String>,
+    pub level: Scrutiny,
+    pub n: usize,
+}
+
+// impl fmt::Display for Rule {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         write!(f, "{}\t{}\t{}\t{}", self.glob, self.level, self.n, self.pop)
+//     }
+// }
+
+impl FromStr for Rule {
+    type Err = failure::Error;
+
+    fn from_str(line: &str) -> Result<Rule> {
+        let mut ws = line.split_whitespace();
+        let pat = glob::Pattern::new(ws.next().unwrap())?;
+        let level: Scrutiny = ws.next().unwrap().parse()?;
+        let n: usize = ws.next().unwrap().parse()?;
+        let pop: HashSet<String> = ws
+            .next()
+            .unwrap()
+            .split(',')
+            .map(|x| x.to_owned())
+            .collect();
+        if n > pop.len() {
+            warn!("Unsatisfiable rule! {}", line);
+        }
+        Ok(Rule { pat, n, level, pop })
     }
 }
