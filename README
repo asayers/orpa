@@ -1,0 +1,21 @@
+orpa 0.1.0
+Alex Sayers <alex.sayers@gmail.com>
+A tool for enforcing code review requirements
+
+USAGE:
+    orpa [OPTIONS] <SUBCOMMAND>
+
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+OPTIONS:
+    -a, --approvals <approvals>        Path to the approvals DB [default: .approvals]
+    -m, --maintainers <maintainers>    Path to the file describing the rules [default: MAINTAINERS]
+
+SUBCOMMANDS:
+    approvals    Show the approvals for a given file
+    approve      Approve a file
+    help         Prints this message or the help of the given subcommand(s)
+    rules        Show the rules which match a given file
+    status       Show the unmet requirements for a given commit
