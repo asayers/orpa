@@ -1,2 +1,4 @@
 * Store approvals in git notes.  This will solve the problem that people might
   potentially make rules for their approvals DB, rendering it un-approvable.
+* Allow "status" to take paths and pathspecs as well as commitspecs
+* If no valid subcommands are given, assume "status"

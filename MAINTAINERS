@@ -1,1 +1,12 @@
+# This file defines code-review requirements for this repo.  It is meant to be
+# consumed by orpa <https://github.com/asayers/orpa>.
+#
+# The format is: pattern, scrutiny level, number of reviewers, potential
+# reviewers.  For instance, the rule
+#
+#     src/*   !!!   2   alice,bob,charlie
+#
+# means that every file under src/ must be reviewed by any two of Alice, Bob,
+# and Charlie, at a very high level of scrutiny.
+
 src/*	! 1	asayers
