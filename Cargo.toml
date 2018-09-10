@@ -2,6 +2,7 @@
 name = "orpa"
 version = "0.1.0"
 authors = ["Alex Sayers <alex.sayers@gmail.com>"]
+description = "A tool for enforcing code review requirements"
 
 [dependencies]
 clap = "2.32.0"

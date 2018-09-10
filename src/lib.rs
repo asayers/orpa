@@ -2,16 +2,16 @@
 extern crate failure;
 #[macro_use]
 extern crate log;
+extern crate git2;
 extern crate glob;
 extern crate itertools;
-extern crate git2;
 
-use std::io::{BufReader, BufRead, Read};
 use git2::Oid;
-use std::collections::HashMap;
 use itertools::Itertools;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -38,7 +38,7 @@ impl Approvals {
     }
 
     pub fn lookup(&self, oid: Oid) -> &[(Name, Level)] {
-        self.0.get(&oid).map(|x|x.as_slice()).unwrap_or(&[])
+        self.0.get(&oid).map(|x| x.as_slice()).unwrap_or(&[])
     }
 }
 
@@ -126,6 +126,7 @@ impl FromStr for Level {
 
     fn from_str(line: &str) -> Result<Level> {
         if line.chars().all(|c| c == '!') {
+            assert!(line.len() > 0);
             Ok(Level(line.len() - 1))
         } else {
             bail!("Level should be all exclamation marks")
@@ -151,7 +152,8 @@ impl fmt::Display for Rule {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{}\t{}\t{}",
+            "{}\t{}\t{}\t{}",
+            self.pat,
             self.lvl,
             self.n,
             self.pop
