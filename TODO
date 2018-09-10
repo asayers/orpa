@@ -1,0 +1,2 @@
+* Store approvals in git notes.  This will solve the problem that people might
+  potentially make rules for their approvals DB, rendering it un-approvable.
