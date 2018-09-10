@@ -43,7 +43,11 @@ enum Subcommand {
     Status { commitspec: Option<String> },
     /// Approve a file
     #[structopt(name = "approve")]
-    Approve { target: String, lvl: Option<String> },
+    Approve {
+        #[structopt(short = "l", parse(from_occurrences))]
+        lvl: usize,
+        targets: Vec<String>,
+    },
 }
 
 impl Args {
@@ -88,18 +92,20 @@ fn main() {
                 process::exit(1);
             }
         }
-        Subcommand::Approve { target, lvl } => {
+        Subcommand::Approve { targets, lvl } => {
             let repo = Repository::open_from_env().unwrap();
-            let mut pathspec = String::from("HEAD:");
-            pathspec.push_str(&target);
-            let oid = repo.revparse_single(&pathspec).unwrap().id();
-            let name = env::var("USER").unwrap();
-            let lvl = lvl.as_ref().map_or(Level(0), |x| x.parse().unwrap());
             let mut approvals_file = OpenOptions::new()
                 .append(true)
                 .open(args.approvals)
                 .unwrap();
-            writeln!(approvals_file, "{}\t{}\t{}", oid, name, lvl).unwrap();
+            for target in targets {
+                let mut pathspec = String::from("HEAD:");
+                pathspec.push_str(&target);
+                let oid = repo.revparse_single(&pathspec).unwrap().id();
+                let name = env::var("USER").unwrap();
+                let lvl = Level(*lvl);
+                writeln!(approvals_file, "{}\t{}\t{}", oid, name, lvl).unwrap();
+            }
         }
     }
 }
