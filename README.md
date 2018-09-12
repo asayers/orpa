@@ -1,5 +1,7 @@
 # `orpa` - a tool for enforcing code review requirements
 
+Status: WIP
+
 ## MAINTAINERS file
 
 Begin by making a file called MAINTAINERS.  This file outlines the review
@@ -10,13 +12,13 @@ scrutiny level, number of reviewers, potential reviewers.  For instance:
     Cargo.toml 		!	1	alice
 
     # Source files should be looked at by _someone_
-    src/*			!	1	alice,bob,charlie,daisuke
+    src/*		!	1	alice,bob,charlie,daisuke
 
     # Changes to the backend should be reviewed by two people
     src/backend/*	!	2	alice,bob,charlie,daisuke
 
     # Changes to protobuf schemas should be reviewed carefully
-    *.proto			!!	1	alice,charlie
+    *.proto		!!	1	alice,charlie
 
 ## Workflow example
 
@@ -27,10 +29,10 @@ defined in MAINTAINERS.  Assuming "bobs-feature" is checked out, we get:
     $ orpa status
     The following requirements are unmet.
     src/main.rs:
-        src/*			!	1	alice,bob,charlie,daisuke
+        src/*		!	1	alice,bob,charlie,daisuke
     src/schema.proto:
-        src/*			!	1	alice,bob,charlie,daisuke
-        *.proto			!!	1	alice,charlie,eddy
+        src/*		!	1	alice,bob,charlie,daisuke
+        *.proto		!!	1	alice,charlie,eddy
 
 Looks like some of Bob's changes haven't been accepted, and he needs to get in
 touch with some maintainers to get their approval.
