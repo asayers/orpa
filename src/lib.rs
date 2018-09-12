@@ -2,45 +2,19 @@
 extern crate failure;
 #[macro_use]
 extern crate log;
-extern crate git2;
 extern crate glob;
 extern crate itertools;
 
-use git2::Oid;
 use itertools::Itertools;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::str::FromStr;
 
-type Result<T> = ::std::result::Result<T, failure::Error>;
+pub type Result<T> = ::std::result::Result<T, failure::Error>;
 
 pub type Name = String;
-
-pub struct Approvals(HashMap<Oid, Vec<(Name, Level)>>);
-
-impl Approvals {
-    pub fn from_reader<R: Read>(rdr: R) -> Result<Approvals> {
-        let rdr = BufReader::new(rdr);
-        let mut approvals = HashMap::new();
-        for line in rdr.lines() {
-            let line = line?;
-            let mut fields = line.split_whitespace();
-            let hash = fields.next().unwrap().parse()?;
-            let name = fields.next().unwrap().to_string();
-            let level = fields.next().unwrap().parse()?;
-            let entry = approvals.entry(hash).or_insert(Vec::new());
-            entry.push((name.clone(), level));
-        }
-        Ok(Approvals(approvals))
-    }
-
-    pub fn lookup(&self, oid: Oid) -> &[(Name, Level)] {
-        self.0.get(&oid).map(|x| x.as_slice()).unwrap_or(&[])
-    }
-}
 
 pub struct RuleSet(pub Vec<Rule>);
 
