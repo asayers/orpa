@@ -24,6 +24,9 @@ struct Args {
     /// Path to the file describing the rules
     #[structopt(short = "m", long = "maintainers", default_value = "MAINTAINERS")]
     maintainers: String,
+    /// Increase verbosity
+    #[structopt(short = "v", parse(from_occurrences))]
+    verbosity: usize,
     #[structopt(subcommand)]
     subcommand: Subcommand,
 }
@@ -74,9 +77,17 @@ impl Args {
 }
 
 fn main() {
-    env_logger::init();
-
     let args = Args::from_args();
+
+    let log_level = match args.verbosity {
+        0 => log::LevelFilter::Warn,
+        1 => log::LevelFilter::Info,
+        _ => log::LevelFilter::Trace,
+    };
+    env_logger::Builder::from_default_env()
+        .filter_level(log_level)
+        .init();
+
     info!("Args: {:?}", args);
 
     match &args.subcommand {
@@ -218,6 +229,7 @@ fn approve(repo: &Repository, target: Oid, name: Name, lvl: Level) -> Result<()>
     lines.dedup();
     let msg: String = lines.into_iter().intersperse("\n".to_string()).collect();
     repo.note(&sig, &sig, Some(NOTES_REF), target, &msg, true)?;
+    info!("Approved {:?}: {}", target, msg);
     Ok(())
 }
 
