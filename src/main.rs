@@ -67,6 +67,14 @@ enum Subcommand {
         #[structopt(default_value = "origin")]
         remote: String,
     },
+
+    ///
+    #[structopt(name = "todo")]
+    ToDo {
+        /// The commit to display the to-dos for
+        #[structopt(default_value = "HEAD")]
+        commitspec: String,
+    },
 }
 
 impl Args {
@@ -109,6 +117,21 @@ fn main() {
             let ruleset = args.load_ruleset();
             let exit_code = status(&repo, ruleset, &commitspec).unwrap();
             process::exit(exit_code);
+        }
+        Subcommand::ToDo { commitspec } => {
+            let name = env::var("USER").unwrap();
+            let repo = Repository::open_from_env().unwrap();
+            let ruleset = args.load_ruleset();
+            let reqs = status_2(&repo, ruleset, &commitspec).unwrap();
+            for (path, mut rules) in reqs {
+                rules.retain(|rule| rule.pop.contains(&name));
+                if !rules.is_empty() {
+                    println!("{}:", path.to_str().unwrap());
+                    for rule in rules {
+                        println!("  {}", rule);
+                    }
+                }
+            }
         }
         Subcommand::Approve { targets, lvl } => {
             let repo = Repository::open_from_env().unwrap();
