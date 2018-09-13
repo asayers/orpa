@@ -55,7 +55,11 @@ Or, if "my-feature" is checked out, she can simply do:
 
     $ orpa approve src/*
 
-Now "bobs-feature" is good-to-go!
+Alice pushes her approvals to "origin" like so:
+
+    $ orpa sync
+
+And now "bobs-feature" is good-to-go!
 
     $ orpa status bobs-feature
     All changes approved

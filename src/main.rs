@@ -57,6 +57,13 @@ enum Subcommand {
         /// assumed).
         targets: Vec<String>,
     },
+
+    /// Sync approvals with the given remote
+    #[structopt(name = "sync")]
+    SyncC {
+        #[structopt(default_value = "origin")]
+        remote: String,
+    },
 }
 
 impl Args {
@@ -101,10 +108,68 @@ fn main() {
                 approve(&repo, oid, name, lvl).unwrap();
             }
         }
+        Subcommand::SyncC { remote } => {
+            let repo = Repository::open_from_env().unwrap();
+            info!("Connecting to {}", remote);
+            let mut remote = repo.find_remote(&remote).unwrap();
+            sync(remote);
+        }
     }
 }
 
 const NOTES_REF: &str = "refs/notes/orpa";
+const NOTES_TMP_REF: &str = "refs/notes/orpa-tmp";
+
+fn sync(mut remote: Remote) {
+    info!("Fetching...");
+    let mut opts = FetchOptions::new();
+    remote
+        .fetch(
+            &[&format!("{}:{}", NOTES_REF, NOTES_TMP_REF)],
+            Some(opts.remote_callbacks(mk_cbs())),
+            None,
+        )
+        .unwrap();
+    info!("Merging...");
+    let merge_cmd = Command::new("git")
+        .arg("notes")
+        .arg(&format!("--ref={}", NOTES_REF))
+        .arg("merge")
+        .arg("--strategy=cat_sort_uniq")
+        .arg(NOTES_TMP_REF).status();
+    assert!(merge_cmd.unwrap().success());
+    info!("Pushing...");
+    let mut opts = PushOptions::new();
+    remote
+        .push(
+            &[&format!("{}:{}", NOTES_REF, NOTES_REF)],
+            Some(opts.remote_callbacks(mk_cbs())),
+        )
+        .unwrap();
+}
+
+fn mk_cbs<'a>() -> RemoteCallbacks<'a> {
+    let mut cbs = RemoteCallbacks::new();
+    cbs.credentials(|url, username, cred_type| {
+        info!("Attempting to authenticate for {}", url);
+        if cred_type.is_ssh_key() {
+            Cred::ssh_key_from_agent(username.unwrap())
+        } else {
+            let msg = format!(
+                "Don't know how to authenticate request of type {:?}",
+                cred_type
+            );
+            Err(git2::Error::from_str(&msg))
+        }
+    });
+    cbs.push_update_reference(|r, status| {
+        if let Some(e) = status {
+            error!("Pushing {} rejected: {}", r, e);
+        }
+        Ok(())
+    });
+    cbs
+}
 
 fn parse_pathspec(repo: &Repository, pathspec: &str) -> Result<Oid> {
     Ok(repo
