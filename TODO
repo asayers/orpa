@@ -3,3 +3,6 @@
 * Speed up sync
 * Get todo working
 * Show end-of-line comments when displaying rules
+* Colourize files depending on whether we're the only possible reviewer
+* Clean merge of two reviewed files gives a reviewed file
+* Flag CRs in the code
