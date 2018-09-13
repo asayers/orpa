@@ -3,6 +3,8 @@ extern crate log;
 extern crate env_logger;
 extern crate glob;
 extern crate itertools;
+extern crate tempdir;
+extern crate tokei;
 extern crate orpa;
 #[macro_use]
 extern crate structopt;
@@ -10,6 +12,9 @@ extern crate git2;
 
 use git2::*;
 use itertools::Itertools;
+use tempdir::TempDir;
+use tokei::LanguageType;
+use std::io::{Cursor,Write, BufRead};
 use orpa::*;
 use std::collections::HashMap;
 use std::env;
@@ -74,6 +79,13 @@ enum Subcommand {
         /// The commit to display the to-dos for
         #[structopt(default_value = "HEAD")]
         commitspec: String,
+    },
+
+    ///
+    #[structopt(name = "crs")]
+    CRs {
+        /// The file to display the CRs of
+        pathspec: String,
     },
 }
 
@@ -147,6 +159,13 @@ fn main() {
             info!("Connecting to {}", remote);
             let mut remote = repo.find_remote(&remote).unwrap();
             sync(remote);
+        }
+        Subcommand::CRs { pathspec } => {
+            let repo = Repository::open_from_env().unwrap();
+            let crs = crs(&repo, pathspec).unwrap();
+            for cr in crs {
+                println!("COMMENT: {}", cr);
+            }
         }
     }
 }
@@ -301,4 +320,54 @@ fn status(repo: &Repository, ruleset: RuleSet, commitspec: &str) -> Result<i32> 
         }
         Ok(1)
     }
+}
+
+fn crs(repo: &Repository, pathspec: &str) -> Result<Vec<String>> {
+    let blob = repo.find_blob(parse_pathspec(repo, pathspec)?)?;
+
+    let lang = blob_lang(pathspec, &blob)?;
+    info!("File type: {:?}", lang);
+
+    let comments = comments(lang, blob.content())?;
+    Ok(comments)
+}
+
+// FIXME: This implementation is currently very rudimentary...
+fn comments(lang: LanguageType, file: &[u8]) -> Result<Vec<String>> {
+    let mut ret = Vec::new();
+    let mut cur = String::new();
+    for line in Cursor::new(file).lines() {
+        let line = line?;
+        // CR: Remove me!
+        match lang.line_comments().iter().find_map(|comment_marker| {
+            if line.trim_left().starts_with(comment_marker) {
+                Some(line.trim_left()
+            // it's a
+            // multiline comment
+            cur.push_str(&line);
+            cur.push_str("\n");
+            }
+        } else {
+            if !cur.is_empty() {
+                let mut done = String::new();
+                std::mem::swap(&mut cur, &mut done);
+                ret.push(done);
+            }
+        }
+    }
+    if !cur.is_empty() {
+        ret.push(cur);
+    }
+    Ok(ret)
+}
+
+fn blob_lang(pathspec: &str, blob: &Blob) -> Result<LanguageType> {
+    let fname = Path::new(pathspec).file_name().unwrap();
+    let dir = TempDir::new("orpa")?;
+    let path = dir.path().join(fname);
+    {
+        let mut file = File::create(&path)?;
+        file.write_all(blob.content())?;
+    }
+    Ok(LanguageType::from_path(path).unwrap())
 }
