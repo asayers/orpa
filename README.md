@@ -69,10 +69,17 @@ And now "bobs-feature" is good-to-go!
 `orpa status <branch>` exits with status 0 if "branch" is accepted and 1 if
 not, so you can use it in a pre-recieve hook to enforce review policy.
 
+A review at a high level of scrutiny (eg. "!!") satifies a requirement for a
+review at a lower level of scrutiny (eg. "!").
+
+It's expected that reviewers will be referred to by short names (eg. "asayers")
+in the rules.  In this case, it's probably a good idea to add a section to your
+MAINTAINERS files along the lines of:
+
+    # alice		Alice Doe <alice@example.com>
+    # bob		Bob Smith <bob@example.com>
+
 Approvals are stored in git-notes and committed to "refs/notes/orpa".  If
 you're so inclined, you can look at the raw approvals data with `git notes
 --ref=refs/notes/orpa show <blob>`.  "refs/notes/orpa" is synchronised with
 "origin" automatically by `orpa approve`.
-
-A review at a high level of scrutiny (eg. "!!") satifies a requirement for a
-review at a lower level of scrutiny (eg. "!").

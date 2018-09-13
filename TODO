@@ -2,3 +2,4 @@
 * Assume anything present in a certain (configurble) branch is approved
 * Speed up sync
 * Get todo working
+* Show end-of-line comments when displaying rules
