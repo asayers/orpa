@@ -66,14 +66,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
     } else {
         println!("The following commits are awaiting approval:\n");
         for oid in unapproved.into_iter().rev().take(10) {
-            let c = repo.find_commit(oid)?;
-            println!(
-                "{} {:<80} {} {}",
-                c.as_object().short_id()?.as_str().unwrap_or("").yellow(),
-                c.summary().unwrap_or(""),
-                time_to_chrono(c.author().when()).to_string().blue(),
-                c.author().name().unwrap_or("").green(),
-            );
+            show_commit_oneline(&repo, oid)?;
         }
         if n_unapproved > 10 {
             println!(
@@ -93,7 +86,7 @@ fn triage(repo: &Repository) -> anyhow::Result<()> {
         show_commit_with_diffstat(&repo, oid)?;
         println!();
         let approve = loop {
-            print!("Approve? [y/N] [t=>tig] [q=>quit]");
+            print!("Approve? [y/N] [t=>tig] [q=>quit] ");
             stdout().flush()?;
             let mut l = String::new();
             stdin().lock().read_line(&mut l)?;
@@ -196,6 +189,20 @@ fn walk_unapproved(repo: &Repository, mut f: impl FnMut(Oid)) -> anyhow::Result<
 fn time_to_chrono(time: Time) -> chrono::NaiveDateTime {
     // FIXME: Include timezone
     NaiveDateTime::from_timestamp(time.seconds(), 0)
+}
+
+fn show_commit_oneline(repo: &Repository, oid: Oid) -> anyhow::Result<()> {
+    let c = repo.find_commit(oid)?;
+    // FIXME: Stats are wrong for merge commits
+    let diff = repo.diff_tree_to_tree(Some(&c.parent(0)?.tree()?), Some(&c.tree()?), None)?;
+    let stats = diff.stats()?.to_buf(DiffStatsFormat::SHORT, 20)?;
+    println!(
+        "{} {:<80} {}",
+        c.as_object().short_id()?.as_str().unwrap_or("").yellow(),
+        c.summary().unwrap_or(""),
+        stats.as_str().unwrap_or("").trim().blue(),
+    );
+    Ok(())
 }
 
 fn show_commit_with_diffstat(repo: &Repository, oid: Oid) -> anyhow::Result<()> {
