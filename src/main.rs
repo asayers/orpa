@@ -194,7 +194,7 @@ fn time_to_chrono(time: Time) -> chrono::NaiveDateTime {
 fn show_commit_oneline(repo: &Repository, oid: Oid) -> anyhow::Result<()> {
     let c = repo.find_commit(oid)?;
     // FIXME: Stats are wrong for merge commits
-    let diff = repo.diff_tree_to_tree(Some(&c.parent(0)?.tree()?), Some(&c.tree()?), None)?;
+    let diff = commit_diff(repo, &c)?;
     let stats = diff.stats()?.to_buf(DiffStatsFormat::SHORT, 20)?;
     println!(
         "{} {:<80} {}",
@@ -203,6 +203,21 @@ fn show_commit_oneline(repo: &Repository, oid: Oid) -> anyhow::Result<()> {
         stats.as_str().unwrap_or("").trim().blue(),
     );
     Ok(())
+}
+
+/// The diff of a commit against its first parent
+fn commit_diff<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<Diff<'a>> {
+    let base = match c.parent(0) {
+        Ok(parent) => parent.tree()?,
+        Err(e) if e.code() == ErrorCode::NotFound => empty_tree(repo)?,
+        Err(e) => Err(e)?,
+    };
+    Ok(repo.diff_tree_to_tree(Some(&base), Some(&c.tree()?), None)?)
+}
+
+fn empty_tree(repo: &Repository) -> anyhow::Result<Tree> {
+    let oid = repo.treebuilder(None)?.write()?;
+    Ok(repo.find_tree(oid)?)
 }
 
 fn show_commit_with_diffstat(repo: &Repository, oid: Oid) -> anyhow::Result<()> {
@@ -220,7 +235,7 @@ fn show_commit_with_diffstat(repo: &Repository, oid: Oid) -> anyhow::Result<()> 
     }
     println!();
     // FIXME: Stats are wrong for merge commits
-    let diff = repo.diff_tree_to_tree(Some(&c.parent(0)?.tree()?), Some(&c.tree()?), None)?;
+    let diff = commit_diff(repo, &c)?;
     let stats = diff.stats()?.to_buf(DiffStatsFormat::FULL, 80)?;
     print!("{}", stats.as_str().unwrap_or(""));
     Ok(())
