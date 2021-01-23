@@ -1,10 +1,11 @@
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use chrono::NaiveDateTime;
 use colored::Colorize;
-use git2::{DiffStatsFormat, ErrorCode, Oid, Repository, Time};
+use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree};
+use itertools::Itertools;
+use std::collections::HashSet;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::process::Command;
-use std::str::FromStr;
 use structopt::StructOpt;
 use tracing::*;
 
@@ -15,16 +16,19 @@ struct Opts {
 }
 #[derive(StructOpt)]
 enum Cmd {
-    /// Interactively approve waiting commits
+    /// Interactively review waiting commits
     Triage,
-    /// Inspect the oldest unapproved commit
+    /// Inspect the oldest unreviewed commit
     Next,
-    /// List all unapproved commits
+    /// List all unreviewed commits
     List,
     /// Show the status of a commit
     Show { revspec: String },
-    /// Approve a commit
-    Approve { revspec: String },
+    /// Attach a note to a commit
+    Review {
+        revspec: String,
+        note: Option<String>,
+    },
     /// Approve a commit and all its ancestors
     Checkpoint { revspec: String },
     /// Speed up future operations
@@ -51,67 +55,74 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
         Some(Cmd::Next) => next(&repo),
         Some(Cmd::List) => list(&repo),
         Some(Cmd::Show { revspec }) => show(&repo, &revspec),
-        Some(Cmd::Approve { revspec }) => set_note(&repo, &revspec, OrpaNote::Approved),
-        Some(Cmd::Checkpoint { revspec }) => set_note(&repo, &revspec, OrpaNote::Checkpoint),
+        Some(Cmd::Review { revspec, note }) => add_note(
+            &repo,
+            repo.revparse_single(&revspec)?.peel_to_commit()?.id(),
+            note.as_ref().map_or("Reviewed", |x| x.as_str()),
+        ),
+        Some(Cmd::Checkpoint { revspec }) => add_note(
+            &repo,
+            repo.revparse_single(&revspec)?.peel_to_commit()?.id(),
+            "checkpoint",
+        ),
         Some(Cmd::GC) => Err(anyhow!("Auto-checkpointing not implemented yet")),
     }
 }
 
 fn summary(repo: &Repository) -> anyhow::Result<()> {
-    let mut unapproved = vec![];
-    walk_unapproved(&repo, |oid| unapproved.push(oid))?;
-    let n_unapproved = unapproved.len();
-    if n_unapproved == 0 {
+    let mut new = vec![];
+    walk_new(&repo, |oid| new.push(oid))?;
+    let n_new = new.len();
+    if n_new == 0 {
         println!("Everything looks good!");
     } else {
-        println!("The following commits are awaiting approval:\n");
-        for oid in unapproved.into_iter().rev().take(10) {
+        println!("The following commits are awaiting review:\n");
+        for oid in new.into_iter().rev().take(10) {
             show_commit_oneline(&repo, oid)?;
         }
-        if n_unapproved > 10 {
-            println!(
-                "...and {} more (use \"orpa list\" to see them)",
-                n_unapproved - 10
-            );
-            println!("\nHint: You have a lot of unapproved commits. You can skip old\nones by setting a checkpoint:    orpa checkpoint <oid>");
+        if n_new > 10 {
+            println!("...and {} more (use \"orpa list\" to see them)", n_new - 10);
+            println!("\nHint: You have a lot of unreviewed commits. You can skip old\nones by setting a checkpoint:    orpa checkpoint <oid>");
         }
     }
     Ok(())
 }
 
 fn triage(repo: &Repository) -> anyhow::Result<()> {
-    let mut unapproved = vec![];
-    walk_unapproved(&repo, |oid| unapproved.push(oid))?;
-    for oid in unapproved.into_iter().rev() {
+    let mut new = vec![];
+    walk_new(&repo, |oid| new.push(oid))?;
+    for oid in new.into_iter().rev() {
         show_commit_with_diffstat(&repo, oid)?;
         println!();
-        let approve = loop {
-            print!("Approve? [y/N] [t=>tig] [q=>quit] ");
+        let new_note = loop {
+            print!("> ");
             stdout().flush()?;
             let mut l = String::new();
             stdin().lock().read_line(&mut l)?;
             match l.trim() {
-                "y" | "Y" => break true,
-                "n" | "N" | "" => break false,
-                "t" | "T" => {
+                _ if l.is_empty() => return Ok(()), // ctrl-D
+                "q" | "quit" => return Ok(()),
+                "h" | "help" => println!("mark      leave a note\nskip      review again next time\ntig       open in tig\nquit      end review session"),
+                "next"|"skip" => break None,
+                "mark" => break Some("Reviewed".into()),
+                x if x.starts_with("mark ") => break Some(String::from(&x[5..])),
+                "tig" => {
                     let status = Command::new("tig")
                         .args(&["show", &oid.to_string()])
                         .status();
-                    if status.is_err() {
+                    if let Err(e) = status {
                         // This indicates that tig is not installed, not that the exit
                         // code was non-zero.
-                        error!("Command not found.  Try installing the 'tig' package");
+                        error!("{}", e);
+                        error!("Make sure 'tig' is installed and in $PATH");
                     }
                 }
-                "q" | "Q" => return Ok(()),
-                _ => (),
+                "" => (), // loop
+                x => println!("Didn't understand command: {}", x),
             }
         };
-        if approve {
-            let sig = repo.signature()?;
-            let note = OrpaNote::Approved;
-            repo.note(&sig, &sig, Some(NOTES_REF), oid, note.as_str(), false)?;
-            println!("Marked {} as {}", oid, note.as_str());
+        if let Some(note) = new_note.as_ref() {
+            add_note(repo, oid, &note)?;
         }
     }
     Ok(())
@@ -119,7 +130,7 @@ fn triage(repo: &Repository) -> anyhow::Result<()> {
 
 fn next(repo: &Repository) -> anyhow::Result<()> {
     let mut last = None;
-    walk_unapproved(&repo, |oid| last = Some(oid))?;
+    walk_new(&repo, |oid| last = Some(oid))?;
     match last {
         Some(oid) => show_commit_with_diffstat(&repo, oid)?,
         None => println!("Everything looks good!"),
@@ -128,7 +139,7 @@ fn next(repo: &Repository) -> anyhow::Result<()> {
 }
 
 fn list(repo: &Repository) -> anyhow::Result<()> {
-    walk_unapproved(&repo, |oid| println!("{}", oid))
+    walk_new(&repo, |oid| println!("{}", oid))
 }
 
 fn show(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
@@ -138,11 +149,19 @@ fn show(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn set_note(repo: &Repository, revspec: &str, note: OrpaNote) -> anyhow::Result<()> {
-    let oid = repo.revparse_single(revspec)?.peel_to_commit()?.id();
+fn add_note(repo: &Repository, oid: Oid, new_note: &str) -> anyhow::Result<()> {
     let sig = repo.signature()?;
-    repo.note(&sig, &sig, Some(NOTES_REF), oid, note.as_str(), false)?;
-    println!("Marked {} as {}", oid, note.as_str());
+    let old_note = get_note(repo, oid)?;
+    let mut notes = HashSet::new();
+    if let Some(note) = old_note.as_ref() {
+        for line in note.lines() {
+            notes.insert(line);
+        }
+    }
+    notes.insert(new_note);
+    let combined_note = notes.iter().join("\n");
+    repo.note(&sig, &sig, Some(NOTES_REF), oid, &combined_note, true)?;
+    println!("{}: {}", oid, notes.iter().join(", "));
     Ok(())
 }
 
@@ -150,13 +169,19 @@ fn set_note(repo: &Repository, revspec: &str, note: OrpaNote) -> anyhow::Result<
 
 const NOTES_REF: &str = "refs/notes/orpa";
 
-fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
+fn get_note(repo: &Repository, oid: Oid) -> anyhow::Result<Option<String>> {
     match repo.find_note(Some(NOTES_REF), oid) {
-        Ok(note) => match note.message().unwrap_or("").parse()? {
-            OrpaNote::Approved => Ok(Status::Approved),
-            OrpaNote::Checkpoint => Ok(Status::Checkpoint),
-        },
-        Err(e) if e.code() == ErrorCode::NotFound => {
+        Ok(note) => Ok(note.message().map(|x| x.to_owned())),
+        Err(e) if e.code() == ErrorCode::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
+    match get_note(repo, oid)? {
+        Some(note) if note == "checkpoint" => Ok(Status::Checkpoint),
+        Some(_) => Ok(Status::Reviewed),
+        None => {
             let commit = repo.find_commit(oid)?;
             let sig = repo.signature()?;
             if commit.author().name_bytes() == sig.name_bytes() {
@@ -164,21 +189,20 @@ fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
             } else if commit.parent_count() > 1 {
                 Ok(Status::Merge)
             } else {
-                Ok(Status::NotApproved)
+                Ok(Status::New)
             }
         }
-        Err(e) => Err(e.into()),
     }
 }
 
-fn walk_unapproved(repo: &Repository, mut f: impl FnMut(Oid)) -> anyhow::Result<()> {
+fn walk_new(repo: &Repository, mut f: impl FnMut(Oid)) -> anyhow::Result<()> {
     let mut walk = repo.revwalk()?;
     walk.push_head()?;
     for oid in walk {
         let oid = oid?;
         let status = lookup(&repo, oid)?;
         match status {
-            Status::NotApproved => f(oid),
+            Status::New => f(oid),
             Status::Checkpoint => break,
             _ => (),
         }
@@ -243,35 +267,9 @@ fn show_commit_with_diffstat(repo: &Repository, oid: Oid) -> anyhow::Result<()> 
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 enum Status {
-    Approved,
+    Reviewed,
     Checkpoint,
     Ours,
     Merge,
-    NotApproved,
-}
-
-#[derive(Copy, Clone, PartialEq, Debug)]
-enum OrpaNote {
-    Approved,
-    Checkpoint,
-}
-
-impl OrpaNote {
-    fn as_str(&self) -> &'static str {
-        match self {
-            OrpaNote::Approved => "Approved",
-            OrpaNote::Checkpoint => "Checkpoint",
-        }
-    }
-}
-
-impl FromStr for OrpaNote {
-    type Err = anyhow::Error;
-    fn from_str(x: &str) -> anyhow::Result<OrpaNote> {
-        match x {
-            "Approved" => Ok(OrpaNote::Approved),
-            "Checkpoint" => Ok(OrpaNote::Checkpoint),
-            _ => bail!("Unknown status: {}", x),
-        }
-    }
+    New,
 }
