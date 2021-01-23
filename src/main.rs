@@ -148,7 +148,7 @@ fn set_note(repo: &Repository, revspec: &str, note: OrpaNote) -> anyhow::Result<
 
 /*************************************************************************************/
 
-const NOTES_REF: &str = "refs/notes/approvals";
+const NOTES_REF: &str = "refs/notes/orpa";
 
 fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
     match repo.find_note(Some(NOTES_REF), oid) {
