@@ -32,17 +32,17 @@ fn main() -> anyhow::Result<()> {
     let me = config.get_string("gitlab.username")?;
 
     info!("Opening the database");
-    let db_path = opts
-        .db
-        .unwrap_or_else(|| repo.path().join("merge_requests"));
+    let default_path = repo.path().join("merge_requests");
+    let db_path = opts.db.as_ref().unwrap_or_else(|| &default_path);
     let db = sled::open(db_path)?;
 
     info!("Connecting to gitlab at {}", &gitlab_host);
     let gl = Gitlab::new_insecure(&gitlab_host, &gitlab_token).unwrap();
 
     info!("Fetching all open MRs for project {}", project_id);
-    let mut mrs = gl.merge_requests_with_state(project_id, MergeRequestStateFilter::Opened)?;
+    let mrs = gl.merge_requests_with_state(project_id, MergeRequestStateFilter::Opened)?;
 
+    info!("Updating the DB with new revisions");
     for mr in &mrs {
         let latest = get_revs(&db, mr).last().transpose()?;
 
@@ -60,13 +60,13 @@ fn main() -> anyhow::Result<()> {
             info!("Inserting new revision: {:?}", info);
             insert_rev(&db, mr, info)?;
         }
-        println!();
     }
 
-    if !opts.hidden {
-        mrs.retain(|mr| !mr.work_in_progress && mr.author.username != me);
-    }
-    for mr in &mrs {
+    info!("Printing MR info");
+    for mr in mrs
+        .iter()
+        .filter(|mr| opts.hidden || (!mr.work_in_progress && mr.author.username != me))
+    {
         let assigned_to_me = mr.assignees.iter().flatten().any(|x| x.username == me);
         println!(
             "!{}{} [{}] {}",
@@ -84,6 +84,7 @@ fn main() -> anyhow::Result<()> {
                 Paint::yellow(head)
             );
         }
+        println!();
     }
 
     Ok(())
