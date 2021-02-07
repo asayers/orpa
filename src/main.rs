@@ -42,28 +42,34 @@ fn main() -> anyhow::Result<()> {
             mr.title,
             mr.author.username,
         );
-        let head = mr.sha.as_ref().map_or("", |x| x.value());
-        let base = mr_base(&repo, &gl, project_id, &mr, head)?;
-        let current_range = format!("{}..{}", base, head);
 
         let prefix = format!("{:06}#", mr.iid.value());
         let existing = db.scan_prefix(prefix.as_bytes());
-        let mut latest_rev = None;
-        let mut latest_range = None;
+        let mut latest = None;
         for x in existing {
             let (k, v) = x?;
             let rev: u16 = atoi(&k[7..]).unwrap();
-            let range = String::from_utf8(v.to_vec())?;
-            println!("  #{}: {}", rev, range);
-            latest_rev = Some(rev);
-            latest_range = Some(range);
+            let base = Oid::from_bytes(&v[..20])?;
+            let head = Oid::from_bytes(&v[20..])?;
+            println!("  #{}: {}..{}", rev, base, head);
+            latest = Some((rev, base, head));
         }
 
-        if latest_range.as_ref() != Some(&current_range) {
+        // We only update the DB if the head has changed.  Technically we
+        // should re-check the base each time as well (in case the target
+        // branch has changed); however, this means making an API request
+        // per-MR, and is slow.
+        let current_head = Oid::from_str(mr.sha.as_ref().unwrap().value())?;
+        if latest.map(|(_, _, head)| head) != Some(current_head) {
+            let current_base = mr_base(&repo, &gl, project_id, &mr, current_head)?;
+            let current_range = format!("{}..{}", current_base, current_head);
             info!("Inserting new revision!");
-            let new_rev = latest_rev.map_or(0, |x| x + 1);
+            let new_rev = latest.map_or(0, |(x, _, _)| x + 1);
             let key = format!("{:06}#{:04}", mr.iid.value(), new_rev);
-            db.insert(key.as_bytes(), current_range.as_bytes())?;
+            let mut val = Box::new([0; 40]);
+            val[..20].copy_from_slice(current_base.as_bytes());
+            val[20..].copy_from_slice(current_head.as_bytes());
+            db.insert(key.as_bytes(), val as Box<[u8]>)?;
             println!("  #{}: {}", new_rev, current_range);
         }
     }
@@ -75,20 +81,21 @@ fn mr_base<'a>(
     gl: &'a Gitlab,
     project_id: ProjectId,
     mr: &'a MergeRequest,
-    head: &'a str,
-) -> anyhow::Result<String> {
+    head: Oid,
+) -> anyhow::Result<Oid> {
     if let Some(x) = mr.diff_refs.as_ref().and_then(|x| x.base_sha.as_ref()) {
-        // They told is the base; good - use that.
-        return Ok(x.value().into());
+        // They told us the base; good - use that.
+        Ok(Oid::from_str(x.value())?)
+    } else {
+        // Looks like we're gonna have to work it out ourselves...
+        let params: [(String, String); 0] = [];
+        // Get the target SHA directly from gitlab, in case the local repo
+        // is out-of-date.
+        let target = gl
+            .branch(project_id, &mr.target_branch, &params)?
+            .commit
+            .unwrap();
+        let target_oid = Oid::from_str(target.id.value())?;
+        Ok(repo.merge_base(head, target_oid)?)
     }
-    // Get the target SHA directly from gitlab, in case the local repo
-    // is out-of-date.
-    let params: [(String, String); 0] = [];
-    let target = gl
-        .branch(project_id, &mr.target_branch, &params)?
-        .commit
-        .unwrap();
-    let target_oid = Oid::from_str(target.id.value())?;
-    let base = repo.merge_base(Oid::from_str(head)?, target_oid)?;
-    Ok(base.to_string())
 }
