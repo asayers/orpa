@@ -1,51 +1,40 @@
 use atoi::atoi;
+use git2::Repository;
 use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
-use serde::*;
 use structopt::StructOpt;
 use tracing::*;
 
 #[derive(StructOpt)]
 struct Opts {
     #[structopt(long)]
-    config: Option<std::path::PathBuf>,
-    #[structopt(long)]
     db: Option<std::path::PathBuf>,
-}
-
-#[derive(Deserialize)]
-struct Config {
-    gitlab_host: String,
-    gitlab_token: String,
-    project_id: ProjectId,
-    me: String,
 }
 
 fn main() -> anyhow::Result<()> {
     let opts = Opts::from_args();
     tracing_subscriber::fmt::init();
-    let dirs = directories::ProjectDirs::from("com", "asayers", "incoming").unwrap();
+
+    info!("Opening the git repo");
+    let repo = Repository::open_from_env()?;
 
     info!("Loading the config");
-    let config_path = opts
-        .config
-        .unwrap_or_else(|| dirs.config_dir().join("config.toml"));
-    let config: Config = toml::from_slice(&std::fs::read(config_path)?)?;
+    let config = repo.config()?;
+    let gitlab_host = config.get_string("gitlab.url")?;
+    let gitlab_token = config.get_string("gitlab.privateToken")?;
+    let project_id = ProjectId::new(config.get_i64("gitlab.projectId")? as u64);
+    let me = config.get_string("gitlab.username")?;
 
     info!("Opening the database");
-    let db_path = opts.db.unwrap_or_else(|| dirs.data_dir().to_path_buf());
+    let db_path = opts.db.unwrap_or_else(|| repo.path().join("gitlab_mrs"));
     let db = sled::open(db_path)?;
 
-    info!("Connecting to gitlab at {}", &config.gitlab_host);
-    let gl = Gitlab::new_insecure(&config.gitlab_host, &config.gitlab_token).unwrap();
+    info!("Connecting to gitlab at {}", &gitlab_host);
+    let gl = Gitlab::new_insecure(&gitlab_host, &gitlab_token).unwrap();
 
-    info!("Fetching all open MRs for project {}", config.project_id);
-    let mrs = gl.merge_requests_with_state(config.project_id, MergeRequestStateFilter::Opened)?;
+    info!("Fetching all open MRs for project {}", project_id);
+    let mrs = gl.merge_requests_with_state(project_id, MergeRequestStateFilter::Opened)?;
     for mr in mrs {
-        let assigned_to_me = mr
-            .assignees
-            .iter()
-            .flatten()
-            .any(|x| x.username == config.me);
+        let assigned_to_me = mr.assignees.iter().flatten().any(|x| x.username == me);
         println!(
             "!{}{}: {} [{}]",
             mr.iid.value(),
