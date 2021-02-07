@@ -1,13 +1,20 @@
-use atoi::atoi;
 use git2::{Oid, Repository};
 use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
+use sled::Db;
 use structopt::StructOpt;
 use tracing::*;
+use yansi::Paint;
 
 #[derive(StructOpt)]
+/// A local database of gitlab MR revisions
+///
+/// The user's own MRs are hidden by default, as are WIP MRs.
 struct Opts {
     #[structopt(long)]
     db: Option<std::path::PathBuf>,
+    /// Include hidden MRs.
+    #[structopt(long, short)]
+    hidden: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -25,54 +32,99 @@ fn main() -> anyhow::Result<()> {
     let me = config.get_string("gitlab.username")?;
 
     info!("Opening the database");
-    let db_path = opts.db.unwrap_or_else(|| repo.path().join("gitlab_mrs"));
+    let db_path = opts
+        .db
+        .unwrap_or_else(|| repo.path().join("merge_requests"));
     let db = sled::open(db_path)?;
 
     info!("Connecting to gitlab at {}", &gitlab_host);
     let gl = Gitlab::new_insecure(&gitlab_host, &gitlab_token).unwrap();
 
     info!("Fetching all open MRs for project {}", project_id);
-    let mrs = gl.merge_requests_with_state(project_id, MergeRequestStateFilter::Opened)?;
-    for mr in mrs {
-        let assigned_to_me = mr.assignees.iter().flatten().any(|x| x.username == me);
-        println!(
-            "!{}{}: {} [{}]",
-            mr.iid.value(),
-            if assigned_to_me { "*" } else { "" },
-            mr.title,
-            mr.author.username,
-        );
+    let mut mrs = gl.merge_requests_with_state(project_id, MergeRequestStateFilter::Opened)?;
 
-        let prefix = format!("{:06}#", mr.iid.value());
-        let existing = db.scan_prefix(prefix.as_bytes());
-        let mut latest = None;
-        for x in existing {
-            let (k, v) = x?;
-            let rev: u16 = atoi(&k[7..]).unwrap();
-            let base = Oid::from_bytes(&v[..20])?;
-            let head = Oid::from_bytes(&v[20..])?;
-            println!("  #{}: {}..{}", rev, base, head);
-            latest = Some((rev, base, head));
-        }
+    for mr in &mrs {
+        let latest = get_revs(&db, mr).last().transpose()?;
 
         // We only update the DB if the head has changed.  Technically we
         // should re-check the base each time as well (in case the target
         // branch has changed); however, this means making an API request
         // per-MR, and is slow.
         let current_head = Oid::from_str(mr.sha.as_ref().unwrap().value())?;
-        if latest.map(|(_, _, head)| head) != Some(current_head) {
-            let current_base = mr_base(&repo, &gl, project_id, &mr, current_head)?;
-            let current_range = format!("{}..{}", current_base, current_head);
-            info!("Inserting new revision!");
-            let new_rev = latest.map_or(0, |(x, _, _)| x + 1);
-            let key = format!("{:06}#{:04}", mr.iid.value(), new_rev);
-            let mut val = Box::new([0; 40]);
-            val[..20].copy_from_slice(current_base.as_bytes());
-            val[20..].copy_from_slice(current_head.as_bytes());
-            db.insert(key.as_bytes(), val as Box<[u8]>)?;
-            println!("  #{}: {}", new_rev, current_range);
+        if latest.map(|x| x.head) != Some(current_head) {
+            let info = RevInfo {
+                rev: latest.map_or(0, |x| x.rev + 1),
+                base: mr_base(&repo, &gl, project_id, &mr, current_head)?,
+                head: current_head,
+            };
+            info!("Inserting new revision: {:?}", info);
+            insert_rev(&db, mr, info)?;
+        }
+        println!();
+    }
+
+    if !opts.hidden {
+        mrs.retain(|mr| !mr.work_in_progress && mr.author.username != me);
+    }
+    for mr in &mrs {
+        let assigned_to_me = mr.assignees.iter().flatten().any(|x| x.username == me);
+        println!(
+            "!{}{} [{}] {}",
+            Paint::magenta(mr.iid.value()),
+            if assigned_to_me { "*" } else { "" },
+            Paint::blue(&mr.author.username),
+            mr.title,
+        );
+        for x in get_revs(&db, mr) {
+            let RevInfo { rev, base, head } = x?;
+            println!(
+                "  rev {}: {}..{}",
+                Paint::magenta(rev),
+                Paint::yellow(base),
+                Paint::yellow(head)
+            );
         }
     }
+
+    Ok(())
+}
+
+// # Database schema
+//
+// Logically, the DB is a map from (merge request ID, revision number) =>
+// (base OID, head OID).
+//
+// Keys: the MR ID (8 bytes) followed by the revision number (1 byte).
+// Values: the base OID (20 bytes) followed by the head OID (20 bytes).
+
+#[derive(Clone, Copy, Debug)]
+struct RevInfo {
+    rev: u8,
+    base: Oid,
+    head: Oid,
+}
+
+fn get_revs(db: &Db, mr: &MergeRequest) -> impl Iterator<Item = anyhow::Result<RevInfo>> {
+    let mr_id = mr.iid.value().to_le_bytes();
+    let existing = db.scan_prefix(&mr_id);
+    existing.map(|x| {
+        let (k, v) = x?;
+        let rev: u8 = k[8];
+        let base = Oid::from_bytes(&v[..20])?;
+        let head = Oid::from_bytes(&v[20..])?;
+        Ok(RevInfo { rev, base, head })
+    })
+}
+
+fn insert_rev(db: &Db, mr: &MergeRequest, info: RevInfo) -> anyhow::Result<()> {
+    let mut key = [0; 9];
+    let mr_id = mr.iid.value().to_le_bytes();
+    key[..8].copy_from_slice(&mr_id);
+    key[8] = info.rev;
+    let mut val = Box::new([0; 40]);
+    val[..20].copy_from_slice(info.base.as_bytes());
+    val[20..].copy_from_slice(info.head.as_bytes());
+    db.insert(key, val as Box<[u8]>)?;
     Ok(())
 }
 
