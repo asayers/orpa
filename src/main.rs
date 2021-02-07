@@ -1,5 +1,5 @@
 use atoi::atoi;
-use git2::Repository;
+use git2::{Oid, Repository};
 use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
 use structopt::StructOpt;
 use tracing::*;
@@ -42,8 +42,8 @@ fn main() -> anyhow::Result<()> {
             mr.title,
             mr.author.username,
         );
-        let base = mr_base(&mr);
         let head = mr.sha.as_ref().map_or("", |x| x.value());
+        let base = mr_base(&repo, &gl, project_id, &mr, head)?;
         let current_range = format!("{}..{}", base, head);
 
         let prefix = format!("{:06}#", mr.iid.value());
@@ -70,15 +70,25 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn mr_base(mr: &MergeRequest) -> &str {
-    if let Some(x) = mr
-        .diff_refs
-        .as_ref()
-        .and_then(|x| x.base_sha.as_ref())
-        .map(|x| x.value())
-    {
+fn mr_base<'a>(
+    repo: &'a Repository,
+    gl: &'a Gitlab,
+    project_id: ProjectId,
+    mr: &'a MergeRequest,
+    head: &'a str,
+) -> anyhow::Result<String> {
+    if let Some(x) = mr.diff_refs.as_ref().and_then(|x| x.base_sha.as_ref()) {
         // They told is the base; good - use that.
-        return x;
+        return Ok(x.value().into());
     }
-    ""
+    // Get the target SHA directly from gitlab, in case the local repo
+    // is out-of-date.
+    let params: [(String, String); 0] = [];
+    let target = gl
+        .branch(project_id, &mr.target_branch, &params)?
+        .commit
+        .unwrap();
+    let target_oid = Oid::from_str(target.id.value())?;
+    let base = repo.merge_base(Oid::from_str(head)?, target_oid)?;
+    Ok(base.to_string())
 }
