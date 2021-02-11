@@ -91,11 +91,14 @@ fn main() -> anyhow::Result<()> {
             } else {
                 format!(" ({} unreviewed)", Paint::new(n_unreviewed).bold())
             };
+            println!();
+            let base = repo.find_commit(base)?;
+            let head = repo.find_commit(head)?;
             println!(
-                "  rev {}: {}..{}{}",
-                Paint::magenta(rev),
-                Paint::yellow(base),
-                Paint::yellow(head),
+                "    rev #{}: {}..{}{}",
+                rev + 1,
+                Paint::blue(base.as_object().short_id()?.as_str().unwrap_or("")),
+                Paint::magenta(head.as_object().short_id()?.as_str().unwrap_or("")),
                 unreviewed_msg,
             );
         }
