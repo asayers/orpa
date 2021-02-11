@@ -63,7 +63,7 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
             repo.revparse_single(&revspec)?.peel_to_commit()?.id(),
             note.as_ref().map_or("Reviewed", |x| x.as_str()),
         ),
-        Some(Cmd::Checkpoint { revspec }) => add_note(
+        Some(Cmd::Checkpoint { revspec }) => append_note(
             &repo,
             repo.revparse_single(&revspec)?.peel_to_commit()?.id(),
             "checkpoint",
@@ -163,7 +163,22 @@ fn show(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn add_note(repo: &Repository, oid: Oid, new_note: &str) -> anyhow::Result<()> {
+fn add_note(repo: &Repository, oid: Oid, verb: &str) -> anyhow::Result<()> {
+    let sig = repo.signature()?;
+    let new_note = format!(
+        "{}-by: {} <{}>",
+        verb,
+        sig.name().unwrap_or(""),
+        sig.email().unwrap_or(""),
+    );
+    append_note(repo, oid, &new_note)
+}
+
+/*************************************************************************************/
+
+const NOTES_REF: &str = "refs/notes/orpa";
+
+fn append_note(repo: &Repository, oid: Oid, new_note: &str) -> anyhow::Result<()> {
     let sig = repo.signature()?;
     let old_note = get_note(repo, oid)?;
     let mut notes = HashSet::new();
@@ -178,10 +193,6 @@ fn add_note(repo: &Repository, oid: Oid, new_note: &str) -> anyhow::Result<()> {
     println!("{}: {}", oid, notes.iter().join(", "));
     Ok(())
 }
-
-/*************************************************************************************/
-
-const NOTES_REF: &str = "refs/notes/orpa";
 
 fn get_note(repo: &Repository, oid: Oid) -> anyhow::Result<Option<String>> {
     match repo.find_note(Some(NOTES_REF), oid) {
