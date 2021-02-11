@@ -275,7 +275,7 @@ fn print_rev(repo: &Repository, rev: RevInfo) -> anyhow::Result<()> {
     let base = repo.find_commit(base)?;
     let head = repo.find_commit(head)?;
     println!(
-        "    rev #{}: {}..{}{}",
+        "    v{} {}..{}{}",
         rev + 1,
         Paint::blue(base.as_object().short_id()?.as_str().unwrap_or("")),
         Paint::magenta(head.as_object().short_id()?.as_str().unwrap_or("")),
@@ -292,7 +292,8 @@ fn print_mr(me: &str, mr: &MergeRequest) {
     );
     println!("Author: {} (@{})", &mr.author.name, &mr.author.username);
     println!("Date:   {}", &mr.updated_at);
-    println!("Title:  {}", &mr.title);
+    println!();
+    println!("    {}", &mr.title);
 
     if let Some(desc) = mr.description.as_ref() {
         if desc != "" {
