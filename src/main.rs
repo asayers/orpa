@@ -136,6 +136,7 @@ fn triage(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
             add_note(repo, oid, &note)?;
         }
     }
+    println!("Everything looks good!");
     Ok(())
 }
 
