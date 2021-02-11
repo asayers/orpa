@@ -1,6 +1,7 @@
 use git2::{Oid, Repository};
 use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
 use sled::Db;
+use std::fs::File;
 use structopt::StructOpt;
 use tracing::*;
 use yansi::Paint;
@@ -15,6 +16,9 @@ struct Opts {
     /// Include hidden MRs.
     #[structopt(long, short)]
     hidden: bool,
+    /// Sync MRs from gitlab.
+    #[structopt(long, short)]
+    fetch: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -34,33 +38,41 @@ fn main() -> anyhow::Result<()> {
     info!("Opening the database");
     let default_path = repo.path().join("merge_requests");
     let db_path = opts.db.as_ref().unwrap_or_else(|| &default_path);
-    let db = sled::open(db_path)?;
+    let db = sled::open(&db_path)?;
 
-    info!("Connecting to gitlab at {}", &gitlab_host);
-    let gl = Gitlab::new_insecure(&gitlab_host, &gitlab_token).unwrap();
+    let mr_cache_path = db_path.join("mr_cache");
+    let mrs = if opts.fetch {
+        info!("Connecting to gitlab at {}", &gitlab_host);
+        let gl = Gitlab::new_insecure(&gitlab_host, &gitlab_token).unwrap();
 
-    info!("Fetching all open MRs for project {}", project_id);
-    let mrs = gl.merge_requests_with_state(project_id, MergeRequestStateFilter::Opened)?;
+        info!("Fetching all open MRs for project {}", project_id);
+        let mrs = gl.merge_requests_with_state(project_id, MergeRequestStateFilter::Opened)?;
+        serde_json::to_writer(File::create(mr_cache_path)?, &mrs)?;
 
-    info!("Updating the DB with new revisions");
-    for mr in &mrs {
-        let latest = get_revs(&db, mr).last().transpose()?;
+        info!("Updating the DB with new revisions");
+        for mr in &mrs {
+            let latest = get_revs(&db, mr).last().transpose()?;
 
-        // We only update the DB if the head has changed.  Technically we
-        // should re-check the base each time as well (in case the target
-        // branch has changed); however, this means making an API request
-        // per-MR, and is slow.
-        let current_head = Oid::from_str(mr.sha.as_ref().unwrap().value())?;
-        if latest.map(|x| x.head) != Some(current_head) {
-            let info = RevInfo {
-                rev: latest.map_or(0, |x| x.rev + 1),
-                base: mr_base(&repo, &gl, project_id, &mr, current_head)?,
-                head: current_head,
-            };
-            info!("Inserting new revision: {:?}", info);
-            insert_rev(&db, mr, info)?;
+            // We only update the DB if the head has changed.  Technically we
+            // should re-check the base each time as well (in case the target
+            // branch has changed); however, this means making an API request
+            // per-MR, and is slow.
+            let current_head = Oid::from_str(mr.sha.as_ref().unwrap().value())?;
+            if latest.map(|x| x.head) != Some(current_head) {
+                let info = RevInfo {
+                    rev: latest.map_or(0, |x| x.rev + 1),
+                    base: mr_base(&repo, &gl, project_id, &mr, current_head)?,
+                    head: current_head,
+                };
+                info!("Inserting new revision: {:?}", info);
+                insert_rev(&db, mr, info)?;
+            }
         }
-    }
+        mrs
+    } else {
+        info!("Reading cached MRs from {}", mr_cache_path.display());
+        serde_json::from_reader(File::open(mr_cache_path)?)?
+    };
 
     info!("Printing MR info");
     for mr in mrs
