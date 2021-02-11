@@ -1,11 +1,13 @@
 use anyhow::anyhow;
 use git2::{Oid, Repository};
-use gitlab::{Gitlab, MergeRequestStateFilter, ProjectId};
+use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
+use mr_db::RevInfo;
 use review_db::*;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::{fs::File, path::PathBuf, process::Command};
 use structopt::StructOpt;
 use tracing::*;
+use yansi::Paint;
 
 #[derive(StructOpt)]
 struct Opts {
@@ -33,10 +35,20 @@ enum Cmd {
     Checkpoint { revspec: String },
     /// Speed up future operations
     GC,
-    /// Sync MRs from gitlab.
+    /// Sync MRs from gitlab
     Fetch {
         #[structopt(long)]
         db: Option<std::path::PathBuf>,
+    },
+    /// Show merge requests
+    ///
+    /// The user's own MRs are hidden by default, as are WIP MRs.
+    Mrs {
+        #[structopt(long)]
+        db: Option<std::path::PathBuf>,
+        /// Include hidden MRs.
+        #[structopt(long, short)]
+        hidden: bool,
     },
 }
 
@@ -73,6 +85,7 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
         ),
         Some(Cmd::GC) => Err(anyhow!("Auto-checkpointing not implemented yet")),
         Some(Cmd::Fetch { db }) => fetch(&repo, db),
+        Some(Cmd::Mrs { db, hidden }) => merge_requests(&repo, db, hidden),
     }
 }
 
@@ -204,4 +217,96 @@ fn fetch(repo: &Repository, db_path: Option<PathBuf>) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn merge_requests(repo: &Repository, db_path: Option<PathBuf>, hidden: bool) -> anyhow::Result<()> {
+    info!("Loading the config");
+    let config = repo.config()?;
+    let me = config.get_string("gitlab.username")?;
+
+    info!("Opening the database");
+    let db_path = db_path.unwrap_or_else(|| repo.path().join("merge_requests"));
+    let db = mr_db::Db::open(&db_path)?;
+
+    let mr_cache_path = db_path.join("mr_cache");
+    info!("Reading cached MRs from {}", mr_cache_path.display());
+    let mrs: Vec<MergeRequest> = serde_json::from_reader(File::open(mr_cache_path)?)?;
+
+    info!("Printing MR info");
+    for mr in mrs
+        .iter()
+        .filter(|mr| hidden || (!mr.work_in_progress && mr.author.username != me))
+    {
+        print_mr(&me, &mr);
+        for x in db.get_revs(mr) {
+            print_rev(&repo, x?)?;
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
+fn print_rev(repo: &Repository, rev: RevInfo) -> anyhow::Result<()> {
+    let RevInfo { rev, base, head } = rev;
+    let range = format!("{}..{}", base, head);
+    let mut walk_all = repo.revwalk()?;
+    walk_all.push_range(&range)?;
+    let n_total = walk_all.count();
+    let mut n_unreviewed = 0;
+    review_db::walk_new(&repo, Some(&range), |_| {
+        n_unreviewed += 1;
+    })?;
+    let unreviewed_msg = if n_unreviewed == 0 {
+        "".into()
+    } else {
+        format!(
+            " ({}/{} reviewed)",
+            Paint::new(n_total - n_unreviewed).bold(),
+            n_total,
+        )
+    };
+    println!();
+    let base = repo.find_commit(base)?;
+    let head = repo.find_commit(head)?;
+    println!(
+        "    rev #{}: {}..{}{}",
+        rev + 1,
+        Paint::blue(base.as_object().short_id()?.as_str().unwrap_or("")),
+        Paint::magenta(head.as_object().short_id()?.as_str().unwrap_or("")),
+        unreviewed_msg,
+    );
+    Ok(())
+}
+
+fn print_mr(me: &str, mr: &MergeRequest) {
+    println!(
+        "{}{}",
+        Paint::yellow("merge_request !"),
+        Paint::yellow(mr.iid.value())
+    );
+    println!("Author: {} (@{})", &mr.author.name, &mr.author.username);
+    println!("Date:   {}", &mr.updated_at);
+    println!("Title:  {}", &mr.title);
+
+    if let Some(desc) = mr.description.as_ref() {
+        if desc != "" {
+            println!();
+            for line in desc.lines() {
+                println!("    {}", line);
+            }
+        }
+    }
+
+    let mut assignees = mr.assignees.iter().flatten().peekable();
+    if assignees.peek().is_some() {
+        println!();
+        for assignee in assignees {
+            let mut s = Paint::new(format!("{} (@{})", assignee.name, assignee.username));
+            if assignee.username == me {
+                s = s.bold();
+            }
+            println!("    Assigned-to: {}", s);
+        }
+    }
 }

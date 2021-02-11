@@ -722,23 +722,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "incoming"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "git2",
- "gitlab",
- "mr_db",
- "review_db",
- "serde_json",
- "sled",
- "structopt",
- "tracing",
- "tracing-subscriber",
- "yansi",
-]
-
-[[package]]
 name = "indexmap"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1109,6 +1092,7 @@ dependencies = [
  "structopt",
  "tracing",
  "tracing-subscriber",
+ "yansi",
 ]
 
 [[package]]
