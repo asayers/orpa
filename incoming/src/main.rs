@@ -82,14 +82,22 @@ fn main() -> anyhow::Result<()> {
         print_mr(&me, &mr);
         for x in get_revs(&db, mr) {
             let RevInfo { rev, base, head } = x?;
+            let range = format!("{}..{}", base, head);
+            let mut walk_all = repo.revwalk()?;
+            walk_all.push_range(&range)?;
+            let n_total = walk_all.count();
             let mut n_unreviewed = 0;
-            review_db::walk_new(&repo, Some(&format!("{}..{}", base, head)), |_| {
+            review_db::walk_new(&repo, Some(&range), |_| {
                 n_unreviewed += 1;
             })?;
             let unreviewed_msg = if n_unreviewed == 0 {
                 "".into()
             } else {
-                format!(" ({} unreviewed)", Paint::new(n_unreviewed).bold())
+                format!(
+                    " ({}/{} reviewed)",
+                    Paint::new(n_total - n_unreviewed).bold(),
+                    n_total,
+                )
             };
             println!();
             let base = repo.find_commit(base)?;
