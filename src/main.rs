@@ -17,13 +17,13 @@ struct Opts {
 #[derive(StructOpt)]
 enum Cmd {
     /// Summarize the review status
-    Summary,
+    Summary { range: Option<String> },
     /// Interactively review waiting commits
-    Triage,
+    Triage { range: Option<String> },
     /// Inspect the oldest unreviewed commit
-    Next,
+    Next { range: Option<String> },
     /// List all unreviewed commits
-    List,
+    List { range: Option<String> },
     /// Show the status of a commit
     Show { revspec: String },
     /// Attach a note to a commit
@@ -52,11 +52,11 @@ fn main() {
 fn main_2(opts: Opts) -> anyhow::Result<()> {
     let repo = Repository::open_from_env()?;
     match opts.cmd {
-        None => summary(&repo),
-        Some(Cmd::Summary) => summary(&repo),
-        Some(Cmd::Triage) => triage(&repo),
-        Some(Cmd::Next) => next(&repo),
-        Some(Cmd::List) => list(&repo),
+        None => summary(&repo, None),
+        Some(Cmd::Summary { range }) => summary(&repo, range),
+        Some(Cmd::Triage { range }) => triage(&repo, range),
+        Some(Cmd::Next { range }) => next(&repo, range),
+        Some(Cmd::List { range }) => list(&repo, range),
         Some(Cmd::Show { revspec }) => show(&repo, &revspec),
         Some(Cmd::Review { revspec, note }) => add_note(
             &repo,
@@ -72,9 +72,9 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
     }
 }
 
-fn summary(repo: &Repository) -> anyhow::Result<()> {
+fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
     let mut new = vec![];
-    walk_new(&repo, |oid| new.push(oid))?;
+    walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
     let n_new = new.len();
     if n_new == 0 {
         println!("Everything looks good!");
@@ -91,9 +91,9 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn triage(repo: &Repository) -> anyhow::Result<()> {
+fn triage(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
     let mut new = vec![];
-    walk_new(&repo, |oid| new.push(oid))?;
+    walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
     for oid in new.into_iter().rev() {
         show_commit_with_diffstat(&repo, oid)?;
         println!();
@@ -131,9 +131,9 @@ fn triage(repo: &Repository) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn next(repo: &Repository) -> anyhow::Result<()> {
+fn next(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
     let mut last = None;
-    walk_new(&repo, |oid| last = Some(oid))?;
+    walk_new(&repo, range.as_ref(), |oid| last = Some(oid))?;
     match last {
         Some(oid) => show_commit_with_diffstat(&repo, oid)?,
         None => println!("Everything looks good!"),
@@ -141,8 +141,8 @@ fn next(repo: &Repository) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn list(repo: &Repository) -> anyhow::Result<()> {
-    walk_new(&repo, |oid| println!("{}", oid))
+fn list(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
+    walk_new(&repo, range.as_ref(), |oid| println!("{}", oid))
 }
 
 fn show(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
@@ -198,9 +198,17 @@ fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
     }
 }
 
-fn walk_new(repo: &Repository, mut f: impl FnMut(Oid)) -> anyhow::Result<()> {
+fn walk_new(
+    repo: &Repository,
+    range: Option<&String>,
+    mut f: impl FnMut(Oid),
+) -> anyhow::Result<()> {
     let mut walk = repo.revwalk()?;
-    walk.push_head()?;
+    if let Some(range) = range {
+        walk.push_range(range)?;
+    } else {
+        walk.push_head()?;
+    }
     for oid in walk {
         let oid = oid?;
         let status = lookup(&repo, oid)?;
