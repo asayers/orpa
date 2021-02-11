@@ -1,6 +1,6 @@
 use git2::{Oid, Repository};
 use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
-use mr_db::*;
+use mr_db::RevInfo;
 use std::fs::File;
 use structopt::StructOpt;
 use tracing::*;
@@ -38,7 +38,7 @@ fn main() -> anyhow::Result<()> {
     info!("Opening the database");
     let default_path = repo.path().join("merge_requests");
     let db_path = opts.db.as_ref().unwrap_or_else(|| &default_path);
-    let db = sled::open(&db_path)?;
+    let db = mr_db::Db::open(&db_path)?;
 
     let mr_cache_path = db_path.join("mr_cache");
     let mrs = if opts.fetch {
@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
 
         info!("Updating the DB with new revisions");
         for mr in &mrs {
-            let latest = get_revs(&db, mr).last().transpose()?;
+            let latest = db.get_revs(mr).last().transpose()?;
 
             // We only update the DB if the head has changed.  Technically we
             // should re-check the base each time as well (in case the target
@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()> {
                     head: current_head,
                 };
                 info!("Inserting new revision: {:?}", info);
-                insert_rev(&db, mr, info)?;
+                db.insert_rev(mr, info)?;
             }
         }
         mrs
@@ -80,7 +80,7 @@ fn main() -> anyhow::Result<()> {
         .filter(|mr| opts.hidden || (!mr.work_in_progress && mr.author.username != me))
     {
         print_mr(&me, &mr);
-        for x in get_revs(&db, mr) {
+        for x in db.get_revs(mr) {
             print_rev(&repo, x?)?;
         }
         println!();
