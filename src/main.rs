@@ -116,7 +116,7 @@ fn triage(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
             match l.trim() {
                 _ if l.is_empty() => return Ok(()), // ctrl-D
                 "q" | "quit" => return Ok(()),
-                "h" | "help" => println!("mark      leave a note\nskip      review again next time\ntig       open in tig\nquit      end review session"),
+                "h" | "help" | "?" => println!("mark      leave a note\nskip      review again next time\ntig       open in tig\nquit      end review session"),
                 "next"|"skip" => break None,
                 "mark" => break Some("Reviewed".into()),
                 x if x.starts_with("mark ") => break Some(String::from(&x[5..])),
