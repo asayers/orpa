@@ -127,9 +127,11 @@ fn print_mr(me: &str, mr: &MergeRequest) {
     println!("Title:  {}", &mr.title);
 
     if let Some(desc) = mr.description.as_ref() {
-        println!();
-        for line in desc.lines() {
-            println!("    {}", line);
+        if desc != "" {
+            println!();
+            for line in desc.lines() {
+                println!("    {}", line);
+            }
         }
     }
 
