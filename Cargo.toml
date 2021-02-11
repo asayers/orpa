@@ -7,8 +7,11 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0.38"
 git2 = "0.13.15"
+gitlab = "0.1210.0"
 itertools = "0.10.0"
+mr_db = { path = "mr_db" }
 review_db = { path = "review_db" }
+serde_json = "1.0.62"
 structopt = "0.3.21"
 tracing = "0.1.22"
 tracing-subscriber = "0.2.15"

@@ -1101,8 +1101,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "git2",
+ "gitlab",
  "itertools 0.10.0",
+ "mr_db",
  "review_db",
+ "serde_json",
  "structopt",
  "tracing",
  "tracing-subscriber",

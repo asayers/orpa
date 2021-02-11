@@ -16,9 +16,6 @@ struct Opts {
     /// Include hidden MRs.
     #[structopt(long, short)]
     hidden: bool,
-    /// Sync MRs from gitlab.
-    #[structopt(long, short)]
-    fetch: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -41,23 +38,8 @@ fn main() -> anyhow::Result<()> {
     let db = mr_db::Db::open(&db_path)?;
 
     let mr_cache_path = db_path.join("mr_cache");
-    let mrs = if opts.fetch {
-        info!("Connecting to gitlab at {}", &gitlab_host);
-        let gl = Gitlab::new_insecure(&gitlab_host, &gitlab_token).unwrap();
-
-        info!("Fetching all open MRs for project {}", project_id);
-        let mrs = gl.merge_requests_with_state(project_id, MergeRequestStateFilter::Opened)?;
-        serde_json::to_writer(File::create(mr_cache_path)?, &mrs)?;
-
-        info!("Updating the DB with new revisions");
-        for mr in &mrs {
-            db.insert_if_newer(&repo, &gl, project_id, mr)?;
-        }
-        mrs
-    } else {
-        info!("Reading cached MRs from {}", mr_cache_path.display());
-        serde_json::from_reader(File::open(mr_cache_path)?)?
-    };
+    info!("Reading cached MRs from {}", mr_cache_path.display());
+    let mrs = serde_json::from_reader(File::open(mr_cache_path)?)?;
 
     info!("Printing MR info");
     for mr in mrs

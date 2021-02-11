@@ -1,8 +1,9 @@
 use anyhow::anyhow;
 use git2::{Oid, Repository};
+use gitlab::{Gitlab, MergeRequestStateFilter, ProjectId};
 use review_db::*;
 use std::io::{stdin, stdout, BufRead, Write};
-use std::process::Command;
+use std::{fs::File, path::PathBuf, process::Command};
 use structopt::StructOpt;
 use tracing::*;
 
@@ -32,6 +33,11 @@ enum Cmd {
     Checkpoint { revspec: String },
     /// Speed up future operations
     GC,
+    /// Sync MRs from gitlab.
+    Fetch {
+        #[structopt(long)]
+        db: Option<std::path::PathBuf>,
+    },
 }
 
 fn main() {
@@ -66,6 +72,7 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
             "checkpoint",
         ),
         Some(Cmd::GC) => Err(anyhow!("Auto-checkpointing not implemented yet")),
+        Some(Cmd::Fetch { db }) => fetch(&repo, db),
     }
 }
 
@@ -170,4 +177,31 @@ fn add_note(repo: &Repository, oid: Oid, verb: &str) -> anyhow::Result<()> {
         sig.email().unwrap_or(""),
     );
     append_note(repo, oid, &new_note)
+}
+
+fn fetch(repo: &Repository, db_path: Option<PathBuf>) -> anyhow::Result<()> {
+    info!("Loading the config");
+    let config = repo.config()?;
+    let gitlab_host = config.get_string("gitlab.url")?;
+    let gitlab_token = config.get_string("gitlab.privateToken")?;
+    let project_id = ProjectId::new(config.get_i64("gitlab.projectId")? as u64);
+
+    info!("Opening the database");
+    let db_path = db_path.unwrap_or_else(|| repo.path().join("merge_requests"));
+    let db = mr_db::Db::open(&db_path)?;
+
+    info!("Connecting to gitlab at {}", &gitlab_host);
+    let gl = Gitlab::new_insecure(&gitlab_host, &gitlab_token).unwrap();
+
+    info!("Fetching all open MRs for project {}", project_id);
+    let mrs = gl.merge_requests_with_state(project_id, MergeRequestStateFilter::Opened)?;
+    let mr_cache_path = db_path.join("mr_cache");
+    serde_json::to_writer(File::create(mr_cache_path)?, &mrs)?;
+
+    info!("Updating the DB with new revisions");
+    for mr in &mrs {
+        db.insert_if_newer(&repo, &gl, project_id, mr)?;
+    }
+
+    Ok(())
 }
