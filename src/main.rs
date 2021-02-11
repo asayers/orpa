@@ -83,9 +83,20 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
         for oid in new.into_iter().rev().take(10) {
             show_commit_oneline(&repo, oid)?;
         }
+        let args = match range.as_ref() {
+            Some(r) => format!(" {}", r),
+            None => "".into(),
+        };
         if n_new > 10 {
-            println!("...and {} more (use \"orpa list\" to see them)", n_new - 10);
-            println!("\nHint: You have a lot of unreviewed commits. You can skip old\nones by setting a checkpoint:    orpa checkpoint <oid>");
+            println!(
+                "...and {} more (use \"orpa list{}\" to see them)",
+                n_new - 10,
+                args,
+            );
+        }
+        println!("\nReview them using \"orpa triage{}\"", args);
+        if n_new > 20 {
+            println!("\nHint: That's a lot of unreviewed commits! You can skip old\nones by setting a checkpoint:    orpa checkpoint <oid>");
         }
     }
     Ok(())
