@@ -79,14 +79,7 @@ fn main() -> anyhow::Result<()> {
         .iter()
         .filter(|mr| opts.hidden || (!mr.work_in_progress && mr.author.username != me))
     {
-        let assigned_to_me = mr.assignees.iter().flatten().any(|x| x.username == me);
-        println!(
-            "!{}{} [{}] {}",
-            Paint::magenta(mr.iid.value()),
-            if assigned_to_me { "*" } else { "" },
-            Paint::blue(&mr.author.username),
-            mr.title,
-        );
+        print_mr(&me, &mr);
         for x in get_revs(&db, mr) {
             let RevInfo { rev, base, head } = x?;
             let mut n_unreviewed = 0;
@@ -110,6 +103,36 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn print_mr(me: &str, mr: &MergeRequest) {
+    println!(
+        "{}{}",
+        Paint::yellow("merge_request !"),
+        Paint::yellow(mr.iid.value())
+    );
+    println!("Author: {} (@{})", &mr.author.name, &mr.author.username);
+    println!("Date:   {}", &mr.updated_at);
+    println!("Title:  {}", &mr.title);
+
+    if let Some(desc) = mr.description.as_ref() {
+        println!();
+        for line in desc.lines() {
+            println!("    {}", line);
+        }
+    }
+
+    let mut assignees = mr.assignees.iter().flatten().peekable();
+    if assignees.peek().is_some() {
+        println!();
+        for assignee in assignees {
+            let mut s = Paint::new(format!("{} (@{})", assignee.name, assignee.username));
+            if assignee.username == me {
+                s = s.bold();
+            }
+            println!("    Assigned-to: {}", s);
+        }
+    }
 }
 
 // # Database schema
