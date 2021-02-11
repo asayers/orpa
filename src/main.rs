@@ -206,14 +206,19 @@ fn fetch(repo: &Repository, db_path: Option<PathBuf>) -> anyhow::Result<()> {
     info!("Connecting to gitlab at {}", &gitlab_host);
     let gl = Gitlab::new_insecure(&gitlab_host, &gitlab_token).unwrap();
 
-    info!("Fetching all open MRs for project {}", project_id);
+    println!(
+        "Fetching open MRs for project {} from {}...",
+        project_id, gitlab_host
+    );
     let mrs = gl.merge_requests_with_state(project_id, MergeRequestStateFilter::Opened)?;
     let mr_cache_path = db_path.join("mr_cache");
     serde_json::to_writer(File::create(mr_cache_path)?, &mrs)?;
 
     info!("Updating the DB with new revisions");
     for mr in &mrs {
-        db.insert_if_newer(&repo, &gl, project_id, mr)?;
+        if let Some(info) = db.insert_if_newer(&repo, &gl, project_id, mr)? {
+            println!("Updated !{} to v{}", mr.iid.value(), info.rev);
+        }
     }
 
     Ok(())

@@ -56,7 +56,7 @@ impl Db {
         gl: &Gitlab,
         project_id: ProjectId,
         mr: &MergeRequest,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Option<RevInfo>> {
         let latest = self.get_revs(mr).last().transpose()?;
         // We only update the DB if the head has changed.  Technically we
         // should re-check the base each time as well (in case the target
@@ -71,8 +71,10 @@ impl Db {
             };
             info!("Inserting new revision: {:?}", info);
             self.insert_rev(mr, info)?;
+            Ok(Some(info))
+        } else {
+            Ok(None)
         }
-        Ok(())
     }
 }
 
