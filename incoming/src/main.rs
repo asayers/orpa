@@ -1,4 +1,4 @@
-use git2::{Oid, Repository};
+use git2::Repository;
 use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
 use mr_db::RevInfo;
 use std::fs::File;
@@ -51,22 +51,7 @@ fn main() -> anyhow::Result<()> {
 
         info!("Updating the DB with new revisions");
         for mr in &mrs {
-            let latest = db.get_revs(mr).last().transpose()?;
-
-            // We only update the DB if the head has changed.  Technically we
-            // should re-check the base each time as well (in case the target
-            // branch has changed); however, this means making an API request
-            // per-MR, and is slow.
-            let current_head = Oid::from_str(mr.sha.as_ref().unwrap().value())?;
-            if latest.map(|x| x.head) != Some(current_head) {
-                let info = RevInfo {
-                    rev: latest.map_or(0, |x| x.rev + 1),
-                    base: mr_base(&repo, &gl, project_id, &mr, current_head)?,
-                    head: current_head,
-                };
-                info!("Inserting new revision: {:?}", info);
-                db.insert_rev(mr, info)?;
-            }
+            db.insert_if_newer(&repo, &gl, project_id, mr)?;
         }
         mrs
     } else {
@@ -150,29 +135,5 @@ fn print_mr(me: &str, mr: &MergeRequest) {
             }
             println!("    Assigned-to: {}", s);
         }
-    }
-}
-
-fn mr_base<'a>(
-    repo: &'a Repository,
-    gl: &'a Gitlab,
-    project_id: ProjectId,
-    mr: &'a MergeRequest,
-    head: Oid,
-) -> anyhow::Result<Oid> {
-    if let Some(x) = mr.diff_refs.as_ref().and_then(|x| x.base_sha.as_ref()) {
-        // They told us the base; good - use that.
-        Ok(Oid::from_str(x.value())?)
-    } else {
-        // Looks like we're gonna have to work it out ourselves...
-        let params: [(String, String); 0] = [];
-        // Get the target SHA directly from gitlab, in case the local repo
-        // is out-of-date.
-        let target = gl
-            .branch(project_id, &mr.target_branch, &params)?
-            .commit
-            .unwrap();
-        let target_oid = Oid::from_str(target.id.value())?;
-        Ok(repo.merge_base(head, target_oid)?)
     }
 }

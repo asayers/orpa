@@ -989,6 +989,7 @@ dependencies = [
  "git2",
  "gitlab",
  "sled",
+ "tracing",
 ]
 
 [[package]]
