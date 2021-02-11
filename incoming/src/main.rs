@@ -81,38 +81,43 @@ fn main() -> anyhow::Result<()> {
     {
         print_mr(&me, &mr);
         for x in get_revs(&db, mr) {
-            let RevInfo { rev, base, head } = x?;
-            let range = format!("{}..{}", base, head);
-            let mut walk_all = repo.revwalk()?;
-            walk_all.push_range(&range)?;
-            let n_total = walk_all.count();
-            let mut n_unreviewed = 0;
-            review_db::walk_new(&repo, Some(&range), |_| {
-                n_unreviewed += 1;
-            })?;
-            let unreviewed_msg = if n_unreviewed == 0 {
-                "".into()
-            } else {
-                format!(
-                    " ({}/{} reviewed)",
-                    Paint::new(n_total - n_unreviewed).bold(),
-                    n_total,
-                )
-            };
-            println!();
-            let base = repo.find_commit(base)?;
-            let head = repo.find_commit(head)?;
-            println!(
-                "    rev #{}: {}..{}{}",
-                rev + 1,
-                Paint::blue(base.as_object().short_id()?.as_str().unwrap_or("")),
-                Paint::magenta(head.as_object().short_id()?.as_str().unwrap_or("")),
-                unreviewed_msg,
-            );
+            print_rev(&repo, x?)?;
         }
         println!();
     }
 
+    Ok(())
+}
+
+fn print_rev(repo: &Repository, rev: RevInfo) -> anyhow::Result<()> {
+    let RevInfo { rev, base, head } = rev;
+    let range = format!("{}..{}", base, head);
+    let mut walk_all = repo.revwalk()?;
+    walk_all.push_range(&range)?;
+    let n_total = walk_all.count();
+    let mut n_unreviewed = 0;
+    review_db::walk_new(&repo, Some(&range), |_| {
+        n_unreviewed += 1;
+    })?;
+    let unreviewed_msg = if n_unreviewed == 0 {
+        "".into()
+    } else {
+        format!(
+            " ({}/{} reviewed)",
+            Paint::new(n_total - n_unreviewed).bold(),
+            n_total,
+        )
+    };
+    println!();
+    let base = repo.find_commit(base)?;
+    let head = repo.find_commit(head)?;
+    println!(
+        "    rev #{}: {}..{}{}",
+        rev + 1,
+        Paint::blue(base.as_object().short_id()?.as_str().unwrap_or("")),
+        Paint::magenta(head.as_object().short_id()?.as_str().unwrap_or("")),
+        unreviewed_msg,
+    );
     Ok(())
 }
 
