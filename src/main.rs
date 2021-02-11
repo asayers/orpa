@@ -16,6 +16,8 @@ struct Opts {
 }
 #[derive(StructOpt)]
 enum Cmd {
+    /// Summarize the review status
+    Summary,
     /// Interactively review waiting commits
     Triage,
     /// Inspect the oldest unreviewed commit
@@ -51,6 +53,7 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
     let repo = Repository::open_from_env()?;
     match opts.cmd {
         None => summary(&repo),
+        Some(Cmd::Summary) => summary(&repo),
         Some(Cmd::Triage) => triage(&repo),
         Some(Cmd::Next) => next(&repo),
         Some(Cmd::List) => list(&repo),
