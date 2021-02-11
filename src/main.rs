@@ -204,7 +204,7 @@ fn get_note(repo: &Repository, oid: Oid) -> anyhow::Result<Option<String>> {
 
 fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
     match get_note(repo, oid)? {
-        Some(note) if note == "checkpoint" => Ok(Status::Checkpoint),
+        Some(note) if note.lines().any(|x| x == "checkpoint") => Ok(Status::Checkpoint),
         Some(_) => Ok(Status::Reviewed),
         None => {
             let commit = repo.find_commit(oid)?;
