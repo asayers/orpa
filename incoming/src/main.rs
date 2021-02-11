@@ -89,11 +89,21 @@ fn main() -> anyhow::Result<()> {
         );
         for x in get_revs(&db, mr) {
             let RevInfo { rev, base, head } = x?;
+            let mut n_unreviewed = 0;
+            review_db::walk_new(&repo, Some(&format!("{}..{}", base, head)), |_| {
+                n_unreviewed += 1;
+            })?;
+            let unreviewed_msg = if n_unreviewed == 0 {
+                "".into()
+            } else {
+                format!(" ({} unreviewed)", Paint::new(n_unreviewed).bold())
+            };
             println!(
-                "  rev {}: {}..{}",
+                "  rev {}: {}..{}{}",
                 Paint::magenta(rev),
                 Paint::yellow(base),
-                Paint::yellow(head)
+                Paint::yellow(head),
+                unreviewed_msg,
             );
         }
         println!();

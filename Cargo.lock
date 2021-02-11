@@ -728,6 +728,7 @@ dependencies = [
  "anyhow",
  "git2",
  "gitlab",
+ "review_db",
  "serde_json",
  "sled",
  "structopt",
