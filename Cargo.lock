@@ -728,6 +728,7 @@ dependencies = [
  "anyhow",
  "git2",
  "gitlab",
+ "mr_db",
  "review_db",
  "serde_json",
  "sled",
@@ -978,6 +979,16 @@ dependencies = [
  "net2",
  "winapi 0.2.8",
  "ws2_32-sys",
+]
+
+[[package]]
+name = "mr_db"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "git2",
+ "gitlab",
+ "sled",
 ]
 
 [[package]]
