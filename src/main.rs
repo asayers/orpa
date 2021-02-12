@@ -17,7 +17,11 @@ struct Opts {
 #[derive(StructOpt)]
 enum Cmd {
     /// Summarize the review status
-    Status { range: Option<String> },
+    Status {
+        range: Option<String>,
+        #[structopt(long)]
+        db: Option<std::path::PathBuf>,
+    },
     /// Interactively review waiting commits
     Triage { range: Option<String> },
     /// Inspect the oldest unreviewed commit
@@ -67,8 +71,8 @@ fn main() {
 fn main_2(opts: Opts) -> anyhow::Result<()> {
     let repo = Repository::open_from_env()?;
     match opts.cmd {
-        None => summary(&repo, None),
-        Some(Cmd::Status { range }) => summary(&repo, range),
+        None => summary(&repo, None, None),
+        Some(Cmd::Status { range, db }) => summary(&repo, range, db),
         Some(Cmd::Triage { range }) => triage(&repo, range),
         Some(Cmd::Next { range }) => next(&repo, range),
         Some(Cmd::List { range }) => list(&repo, range),
@@ -89,14 +93,18 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
     }
 }
 
-fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
+fn summary(
+    repo: &Repository,
+    range: Option<String>,
+    db_path: Option<PathBuf>,
+) -> anyhow::Result<()> {
     let mut new = vec![];
     walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
     let n_new = new.len();
     if n_new == 0 {
-        println!("Everything looks good!");
+        println!("Current branch: no unreviewed commits");
     } else {
-        println!("The following commits are awaiting review:\n");
+        println!("Current branch: The following commits are awaiting review:\n");
         for oid in new.into_iter().rev().take(10) {
             show_commit_oneline(&repo, oid)?;
         }
@@ -115,6 +123,47 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
         if n_new > 20 {
             println!("\nHint: That's a lot of unreviewed commits! You can skip old\nones by setting a checkpoint:    orpa checkpoint <oid>");
         }
+    }
+
+    let config = repo.config()?;
+    let me = config.get_string("gitlab.username")?;
+    let (mrs, db) = cached_mrs(repo, db_path)?;
+    let is_hidden = |mr: &MergeRequest| mr.work_in_progress || mr.author.username == me;
+    let is_assigned = |mr: &MergeRequest| mr.assignees.iter().flatten().any(|x| x.username == me);
+    let n_mrs_assigned = mrs
+        .iter()
+        .filter(|mr| !is_hidden(mr) && is_assigned(mr))
+        .count();
+    let n_mrs_total = mrs.iter().filter(|mr| !is_hidden(mr)).count();
+
+    if n_mrs_assigned > 0 {
+        println!("\nMerge requests with unreviewed commits:");
+    }
+    for mr in mrs.iter().filter(|mr| !is_hidden(mr) && is_assigned(mr)) {
+        let latest_rev = db.get_revs(mr).last().unwrap()?;
+        let range = format!("{}..{}", latest_rev.base, latest_rev.head);
+        let mut n_unreviewed = 0;
+        review_db::walk_new(&repo, Some(&range), |_| {
+            n_unreviewed += 1;
+        })?;
+        if n_unreviewed > 0 {
+            println!(
+                "    {}{} {} ({} unreviewed)",
+                Paint::yellow("!"),
+                Paint::yellow(mr.iid.value()),
+                &mr.title,
+                n_unreviewed,
+            );
+        }
+    }
+    if n_mrs_assigned > 0 {
+        if n_mrs_total > n_mrs_assigned {
+            println!(
+                "      ...and {} more not assigned to me",
+                n_mrs_total - n_mrs_assigned
+            );
+        }
+        println!("\nUse \"orpa mrs\" to see the full MR information");
     }
     Ok(())
 }
@@ -224,20 +273,21 @@ fn fetch(repo: &Repository, db_path: Option<PathBuf>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn merge_requests(repo: &Repository, db_path: Option<PathBuf>, hidden: bool) -> anyhow::Result<()> {
-    info!("Loading the config");
-    let config = repo.config()?;
-    let me = config.get_string("gitlab.username")?;
-
-    info!("Opening the database");
+fn cached_mrs(
+    repo: &Repository,
+    db_path: Option<PathBuf>,
+) -> anyhow::Result<(Vec<MergeRequest>, mr_db::Db)> {
     let db_path = db_path.unwrap_or_else(|| repo.path().join("merge_requests"));
     let db = mr_db::Db::open(&db_path)?;
-
     let mr_cache_path = db_path.join("mr_cache");
-    info!("Reading cached MRs from {}", mr_cache_path.display());
-    let mrs: Vec<MergeRequest> = serde_json::from_reader(File::open(mr_cache_path)?)?;
+    let mrs: Vec<_> = serde_json::from_reader(File::open(mr_cache_path)?)?;
+    Ok((mrs, db))
+}
 
-    info!("Printing MR info");
+fn merge_requests(repo: &Repository, db_path: Option<PathBuf>, hidden: bool) -> anyhow::Result<()> {
+    let config = repo.config()?;
+    let me = config.get_string("gitlab.username")?;
+    let (mrs, db) = cached_mrs(repo, db_path)?;
     for mr in mrs
         .iter()
         .filter(|mr| hidden || (!mr.work_in_progress && mr.author.username != me))
@@ -248,7 +298,6 @@ fn merge_requests(repo: &Repository, db_path: Option<PathBuf>, hidden: bool) -> 
         }
         println!();
     }
-
     Ok(())
 }
 
