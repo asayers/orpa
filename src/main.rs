@@ -269,7 +269,7 @@ fn fetch(repo: &Repository, db_path: Option<PathBuf>) -> anyhow::Result<()> {
     info!("Updating the DB with new revisions");
     for mr in &mrs {
         if let Some(info) = db.insert_if_newer(&repo, &gl, project_id, mr)? {
-            println!("Updated !{} to v{}", mr.iid.value(), info.rev);
+            println!("Updated !{} to v{}", mr.iid.value(), info.rev + 1);
         }
     }
 
