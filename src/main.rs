@@ -44,6 +44,12 @@ enum Cmd {
         #[structopt(long)]
         db: Option<std::path::PathBuf>,
     },
+    /// Show a specific merge request
+    Mr {
+        mr: String,
+        #[structopt(long)]
+        db: Option<std::path::PathBuf>,
+    },
     /// Show merge requests
     ///
     /// The user's own MRs are hidden by default, as are WIP MRs.
@@ -89,6 +95,7 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
         ),
         Some(Cmd::GC) => Err(anyhow!("Auto-checkpointing not implemented yet")),
         Some(Cmd::Fetch { db }) => fetch(&repo, db),
+        Some(Cmd::Mr { db, mr }) => merge_request(&repo, db, mr),
         Some(Cmd::Mrs { db, hidden }) => merge_requests(&repo, db, hidden),
     }
 }
@@ -285,6 +292,25 @@ fn cached_mrs(
     let mr_cache_path = db_path.join("mr_cache");
     let mrs: Vec<_> = serde_json::from_reader(File::open(mr_cache_path)?)?;
     Ok((mrs, db))
+}
+
+fn merge_request(
+    repo: &Repository,
+    db_path: Option<PathBuf>,
+    target: String,
+) -> anyhow::Result<()> {
+    let target: u64 = target.trim_matches(|c: char| !c.is_numeric()).parse()?;
+    let config = repo.config()?;
+    let me = config.get_string("gitlab.username")?;
+    let (mrs, db) = cached_mrs(repo, db_path)?;
+    if let Some(mr) = mrs.iter().find(|mr| mr.iid.value() == target) {
+        print_mr(&me, &mr);
+        for x in db.get_revs(mr) {
+            print_rev(&repo, x?)?;
+        }
+        println!();
+    }
+    Ok(())
 }
 
 fn merge_requests(repo: &Repository, db_path: Option<PathBuf>, hidden: bool) -> anyhow::Result<()> {
