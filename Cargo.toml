@@ -7,7 +7,6 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0.38"
 chrono = "0.4.19"
-colored = "2.0.0"
 git2 = "0.13.17"
 gitlab = "0.1210.0"
 itertools = "0.10.0"

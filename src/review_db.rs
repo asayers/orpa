@@ -1,8 +1,8 @@
 use chrono::NaiveDateTime;
-use colored::Colorize;
 use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree};
 use itertools::Itertools;
 use std::collections::HashSet;
+use yansi::Paint;
 
 const NOTES_REF: &str = "refs/notes/orpa";
 
@@ -83,9 +83,9 @@ pub fn show_commit_oneline(repo: &Repository, oid: Oid) -> anyhow::Result<()> {
     let stats = diff.stats()?.to_buf(DiffStatsFormat::SHORT, 20)?;
     println!(
         "{} {:<80} {}",
-        c.as_object().short_id()?.as_str().unwrap_or("").yellow(),
+        Paint::yellow(c.as_object().short_id()?.as_str().unwrap_or("")),
         c.summary().unwrap_or(""),
-        stats.as_str().unwrap_or("").trim().blue(),
+        Paint::blue(stats.as_str().unwrap_or("").trim()),
     );
     Ok(())
 }
@@ -107,7 +107,11 @@ pub fn empty_tree(repo: &Repository) -> anyhow::Result<Tree> {
 
 pub fn show_commit_with_diffstat(repo: &Repository, oid: Oid) -> anyhow::Result<()> {
     let c = repo.find_commit(oid)?;
-    println!("{}{}", "commit ".yellow(), oid.to_string().yellow());
+    println!(
+        "{}{}",
+        Paint::yellow("commit "),
+        Paint::yellow(oid.to_string())
+    );
     println!(
         "Author: {} <{}>",
         c.author().name().unwrap_or(""),
