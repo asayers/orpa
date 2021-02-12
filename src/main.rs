@@ -28,20 +28,41 @@ enum Cmd {
     /// List all unreviewed commits
     List { range: Option<String> },
     /// Show the status of a commit
-    Show { revspec: String },
-    /// Attach a note to a commit
-    Mark {
+    Show {
+        /// The commit to show the status of.  It can be a revision such as
+        /// "c13f2b6", or a ref such as "origin/master" or "HEAD".
         revspec: String,
+    },
+    /// Attach a note to a commit
+    ///
+    /// The provided note will be formatted as a so-called "trailer",
+    /// so you probably want to enter a past participle.  Eg. the command
+    /// `orpa mark HEAD Tested` will attach the following note to HEAD:
+    /// "Tested-by: Joe Smith <joe@smith.net>".  If no note is provided,
+    /// the verb "Reviewed" is used.
+    Mark {
+        /// The commit to attach a note to.  It can be a revision such as
+        /// "c13f2b6", or a ref such as "origin/master" or "HEAD".
+        revspec: String,
+        /// The note to attach.
         note: Option<String>,
     },
     /// Approve a commit and all its ancestors
-    Checkpoint { revspec: String },
+    Checkpoint {
+        /// The commit to mark as a checkpoint.  It can be a revision such as
+        /// "c13f2b6", or a ref such as "origin/master" or "HEAD".
+        revspec: String,
+    },
     /// Speed up future operations
     GC,
     /// Sync MRs from gitlab
     Fetch,
     /// Show a specific merge request
-    Mr { mr: String },
+    Mr {
+        /// The merge request to show.  Must be an integer.  It can optionally
+        /// be prefixed with a '!'.
+        mr: String,
+    },
     /// Show merge requests
     ///
     /// The user's own MRs are hidden by default, as are WIP MRs.
@@ -303,7 +324,11 @@ fn merge_request(
     Ok(())
 }
 
-fn merge_requests(repo: &Repository, db_path: Option<PathBuf>, include_all: bool) -> anyhow::Result<()> {
+fn merge_requests(
+    repo: &Repository,
+    db_path: Option<PathBuf>,
+    include_all: bool,
+) -> anyhow::Result<()> {
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
     let (mrs, db) = cached_mrs(repo, db_path)?;
