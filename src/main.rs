@@ -23,7 +23,8 @@ enum Cmd {
         db: Option<std::path::PathBuf>,
     },
     /// Interactively review waiting commits
-    Triage { range: Option<String> },
+    #[structopt(alias = "r")]
+    Review { range: Option<String> },
     /// Inspect the oldest unreviewed commit
     Next { range: Option<String> },
     /// List all unreviewed commits
@@ -31,7 +32,7 @@ enum Cmd {
     /// Show the status of a commit
     Show { revspec: String },
     /// Attach a note to a commit
-    Review {
+    Mark {
         revspec: String,
         note: Option<String>,
     },
@@ -79,11 +80,11 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
     match opts.cmd {
         None => summary(&repo, None, None),
         Some(Cmd::Status { range, db }) => summary(&repo, range, db),
-        Some(Cmd::Triage { range }) => triage(&repo, range),
+        Some(Cmd::Review { range }) => review(&repo, range),
         Some(Cmd::Next { range }) => next(&repo, range),
         Some(Cmd::List { range }) => list(&repo, range),
         Some(Cmd::Show { revspec }) => show(&repo, &revspec),
-        Some(Cmd::Review { revspec, note }) => add_note(
+        Some(Cmd::Mark { revspec, note }) => add_note(
             &repo,
             repo.revparse_single(&revspec)?.peel_to_commit()?.id(),
             note.as_ref().map_or("Reviewed", |x| x.as_str()),
@@ -126,7 +127,7 @@ fn summary(
                 args,
             );
         }
-        println!("\nReview them using \"orpa triage{}\"", args);
+        println!("\nReview them using \"orpa review{}\"", args);
         if n_new > 20 {
             println!("\nHint: That's a lot of unreviewed commits! You can skip old\nones by setting a checkpoint:    orpa checkpoint <oid>");
         }
@@ -176,7 +177,7 @@ fn summary(
     Ok(())
 }
 
-fn triage(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
+fn review(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
     let mut new = vec![];
     walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
     for oid in new.into_iter().rev() {
