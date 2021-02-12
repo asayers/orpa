@@ -3,6 +3,7 @@ name = "orpa"
 version = "0.1.0"
 authors = ["Alex Sayers <alex@asayers.com>"]
 edition = "2018"
+license = "Unlicense"
 
 [dependencies]
 anyhow = "1.0.38"
