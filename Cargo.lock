@@ -965,17 +965,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mr_db"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "git2",
- "gitlab",
- "sled",
- "tracing",
-]
-
-[[package]]
 name = "native-tls"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1083,12 +1072,13 @@ name = "orpa"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
+ "colored",
  "git2",
  "gitlab",
  "itertools 0.10.0",
- "mr_db",
- "review_db",
  "serde_json",
+ "sled",
  "structopt",
  "tracing",
  "tracing-subscriber",
@@ -1385,17 +1375,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "winreg",
-]
-
-[[package]]
-name = "review_db"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "colored",
- "git2",
- "itertools 0.10.0",
 ]
 
 [[package]]

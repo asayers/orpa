@@ -1,8 +1,11 @@
+mod mr_db;
+mod review_db;
+
+use crate::mr_db::RevInfo;
+use crate::review_db::*;
 use anyhow::anyhow;
 use git2::{Oid, Repository};
 use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
-use mr_db::RevInfo;
-use review_db::*;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::{fs::File, path::PathBuf, process::Command};
 use structopt::StructOpt;
