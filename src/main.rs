@@ -173,6 +173,18 @@ fn triage(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
     let mut new = vec![];
     walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
     for oid in new.into_iter().rev() {
+        let run_tig = || {
+            let status = Command::new("tig")
+                .args(&["show", &oid.to_string()])
+                .status();
+            if let Err(e) = status {
+                // This indicates that tig is not installed, not that the exit
+                // code was non-zero.
+                error!("{}", e);
+                error!("Make sure 'tig' is installed and in $PATH");
+            }
+        };
+        run_tig();
         show_commit_with_diffstat(&repo, oid)?;
         println!();
         let new_note = loop {
@@ -187,17 +199,7 @@ fn triage(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
                 "next"|"skip" => break None,
                 "mark" => break Some("Reviewed".into()),
                 x if x.starts_with("mark ") => break Some(String::from(&x[5..])),
-                "tig" => {
-                    let status = Command::new("tig")
-                        .args(&["show", &oid.to_string()])
-                        .status();
-                    if let Err(e) = status {
-                        // This indicates that tig is not installed, not that the exit
-                        // code was non-zero.
-                        error!("{}", e);
-                        error!("Make sure 'tig' is installed and in $PATH");
-                    }
-                }
+                "tig" => run_tig(),
                 "" => (), // loop
                 x => println!("Didn't understand command: {}", x),
             }
