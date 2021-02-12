@@ -13,15 +13,13 @@ use yansi::Paint;
 struct Opts {
     #[structopt(subcommand)]
     cmd: Option<Cmd>,
+    #[structopt(long)]
+    db: Option<std::path::PathBuf>,
 }
 #[derive(StructOpt)]
 enum Cmd {
     /// Summarize the review status
-    Status {
-        range: Option<String>,
-        #[structopt(long)]
-        db: Option<std::path::PathBuf>,
-    },
+    Status { range: Option<String> },
     /// Interactively review waiting commits
     #[structopt(alias = "r")]
     Review { range: Option<String> },
@@ -41,22 +39,13 @@ enum Cmd {
     /// Speed up future operations
     GC,
     /// Sync MRs from gitlab
-    Fetch {
-        #[structopt(long)]
-        db: Option<std::path::PathBuf>,
-    },
+    Fetch,
     /// Show a specific merge request
-    Mr {
-        mr: String,
-        #[structopt(long)]
-        db: Option<std::path::PathBuf>,
-    },
+    Mr { mr: String },
     /// Show merge requests
     ///
     /// The user's own MRs are hidden by default, as are WIP MRs.
     Mrs {
-        #[structopt(long)]
-        db: Option<std::path::PathBuf>,
         /// Include hidden MRs.
         #[structopt(long, short)]
         hidden: bool,
@@ -79,7 +68,7 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
     let repo = Repository::open_from_env()?;
     match opts.cmd {
         None => summary(&repo, None, None),
-        Some(Cmd::Status { range, db }) => summary(&repo, range, db),
+        Some(Cmd::Status { range }) => summary(&repo, range, opts.db),
         Some(Cmd::Review { range }) => review(&repo, range),
         Some(Cmd::Next { range }) => next(&repo, range),
         Some(Cmd::List { range }) => list(&repo, range),
@@ -95,9 +84,9 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
             "checkpoint",
         ),
         Some(Cmd::GC) => Err(anyhow!("Auto-checkpointing not implemented yet")),
-        Some(Cmd::Fetch { db }) => fetch(&repo, db),
-        Some(Cmd::Mr { db, mr }) => merge_request(&repo, db, mr),
-        Some(Cmd::Mrs { db, hidden }) => merge_requests(&repo, db, hidden),
+        Some(Cmd::Fetch) => fetch(&repo, opts.db),
+        Some(Cmd::Mr { mr }) => merge_request(&repo, opts.db, mr),
+        Some(Cmd::Mrs { hidden }) => merge_requests(&repo, opts.db, hidden),
     }
 }
 
