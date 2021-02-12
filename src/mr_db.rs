@@ -90,14 +90,16 @@ fn mr_base<'a>(
         Ok(Oid::from_str(x.value())?)
     } else {
         // Looks like we're gonna have to work it out ourselves...
-        let params: [(String, String); 0] = [];
+        use gitlab::api::{projects::repository::branches::Branch, Query};
         // Get the target SHA directly from gitlab, in case the local repo
         // is out-of-date.
-        let target = gl
-            .branch(project_id, &mr.target_branch, &params)?
-            .commit
-            .unwrap();
-        let target_oid = Oid::from_str(target.id.value())?;
-        Ok(repo.merge_base(head, target_oid)?)
+        let branch: gitlab::RepoBranch = Branch::builder()
+            .project(project_id.value())
+            .branch(&mr.target_branch)
+            .build()
+            .map_err(anyhow::Error::msg)?
+            .query(gl)?;
+        let target = Oid::from_str(branch.commit.unwrap().id.value())?;
+        Ok(repo.merge_base(head, target)?)
     }
 }
