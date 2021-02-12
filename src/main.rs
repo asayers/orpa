@@ -128,18 +128,15 @@ fn summary(
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
     let (mrs, db) = cached_mrs(repo, db_path)?;
-    let is_hidden = |mr: &MergeRequest| mr.work_in_progress || mr.author.username == me;
-    let is_assigned = |mr: &MergeRequest| mr.assignees.iter().flatten().any(|x| x.username == me);
-    let n_mrs_assigned = mrs
+    let mut visible_mrs = mrs
         .iter()
-        .filter(|mr| !is_hidden(mr) && is_assigned(mr))
-        .count();
-    let n_mrs_total = mrs.iter().filter(|mr| !is_hidden(mr)).count();
-
-    if n_mrs_assigned > 0 {
+        .filter(|mr| !(mr.work_in_progress || mr.author.username == me))
+        .peekable();
+    let some_mrs = visible_mrs.peek().is_some();
+    if some_mrs {
         println!("\nMerge requests with unreviewed commits:");
     }
-    for mr in mrs.iter().filter(|mr| !is_hidden(mr) && is_assigned(mr)) {
+    for mr in visible_mrs {
         let latest_rev = db.get_revs(mr).last().unwrap()?;
         let range = format!("{}..{}", latest_rev.base, latest_rev.head);
         let mut n_unreviewed = 0;
@@ -147,22 +144,26 @@ fn summary(
             n_unreviewed += 1;
         })?;
         if n_unreviewed > 0 {
-            println!(
-                "    {}{} {} ({} unreviewed)",
-                Paint::yellow("!"),
-                Paint::yellow(mr.iid.value()),
-                &mr.title,
-                n_unreviewed,
-            );
+            if mr.assignees.iter().flatten().any(|x| x.username == me) {
+                println!(
+                    "    {}{} {} ({} unreviewed)",
+                    Paint::yellow("!").bold(),
+                    Paint::yellow(mr.iid.value()).bold(),
+                    Paint::new(&mr.title).bold(),
+                    Paint::new(n_unreviewed),
+                );
+            } else {
+                println!(
+                    "    {}{} {} ({} unreviewed)",
+                    Paint::yellow("!"),
+                    Paint::yellow(mr.iid.value()),
+                    &mr.title,
+                    n_unreviewed,
+                );
+            }
         }
     }
-    if n_mrs_assigned > 0 {
-        if n_mrs_total > n_mrs_assigned {
-            println!(
-                "      ...and {} more not assigned to me",
-                n_mrs_total - n_mrs_assigned
-            );
-        }
+    if some_mrs {
         println!("\nUse \"orpa mrs\" to see the full MR information");
     }
     Ok(())
