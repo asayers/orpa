@@ -48,7 +48,7 @@ enum Cmd {
     Mrs {
         /// Include hidden MRs.
         #[structopt(long, short)]
-        hidden: bool,
+        all: bool,
     },
 }
 
@@ -86,7 +86,7 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
         Some(Cmd::GC) => Err(anyhow!("Auto-checkpointing not implemented yet")),
         Some(Cmd::Fetch) => fetch(&repo, opts.db),
         Some(Cmd::Mr { mr }) => merge_request(&repo, opts.db, mr),
-        Some(Cmd::Mrs { hidden }) => merge_requests(&repo, opts.db, hidden),
+        Some(Cmd::Mrs { all }) => merge_requests(&repo, opts.db, all),
     }
 }
 
@@ -303,13 +303,13 @@ fn merge_request(
     Ok(())
 }
 
-fn merge_requests(repo: &Repository, db_path: Option<PathBuf>, hidden: bool) -> anyhow::Result<()> {
+fn merge_requests(repo: &Repository, db_path: Option<PathBuf>, include_all: bool) -> anyhow::Result<()> {
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
     let (mrs, db) = cached_mrs(repo, db_path)?;
     for mr in mrs
         .iter()
-        .filter(|mr| hidden || (!mr.work_in_progress && mr.author.username != me))
+        .filter(|mr| include_all || (!mr.work_in_progress && mr.author.username != me))
     {
         print_mr(&me, &mr);
         for x in db.get_revs(mr) {
