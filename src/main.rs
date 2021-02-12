@@ -12,6 +12,7 @@ use structopt::StructOpt;
 use tracing::*;
 use yansi::Paint;
 
+/// A tool for tracking private code review
 #[derive(StructOpt)]
 struct Opts {
     #[structopt(subcommand)]
