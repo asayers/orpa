@@ -153,7 +153,7 @@ fn summary(
         if n_unreviewed > 0 {
             if mr.assignees.iter().flatten().any(|x| x.username == me) {
                 println!(
-                    "    {}{} {} ({} unreviewed)",
+                    "    {}{:<5} {} ({} unreviewed)",
                     Paint::yellow("!").bold(),
                     Paint::yellow(mr.iid.value()).bold(),
                     Paint::new(&mr.title).bold(),
@@ -161,7 +161,7 @@ fn summary(
                 );
             } else {
                 println!(
-                    "    {}{} {} ({} unreviewed)",
+                    "    {}{:<5} {} ({} unreviewed)",
                     Paint::yellow("!"),
                     Paint::yellow(mr.iid.value()),
                     &mr.title,
