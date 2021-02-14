@@ -113,10 +113,11 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
     let mut new = vec![];
     walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
     let n_new = new.len();
+    let current = range.as_ref().map_or("Current branch", |x| x.as_str());
     if n_new == 0 {
-        println!("Current branch: no unreviewed commits");
+        println!("{}: no unreviewed commits", current);
     } else {
-        println!("Current branch: The following commits are awaiting review:\n");
+        println!("{}: The following commits are awaiting review:\n", current);
         for oid in new.into_iter().rev().take(10) {
             show_commit_oneline(&repo, oid)?;
         }
