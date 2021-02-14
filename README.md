@@ -18,7 +18,7 @@ $ git log ORIG_HEAD..
 
 This works, but if you don't look through the new commits then-and-there you
 can lose track of which ones you've looked at.  I wanted a way to track the
-"read/unread" status of each commit.
+"read/unread" status of each commit, like I do with email.
 
 ## Enter git-notes
 
@@ -30,8 +30,8 @@ $ git notes add b76598d -m 'Reviewed-by: Alex Sayers <alex@asayers.com>'
 ```
 
 So, I started marking the commits I'd looked at by attaching a note to them.
-Now, the notes show up in `git log` and you can see which commits you've
-looked at, and which are still waiting to be reviewed.
+Now, the notes show up in `git log` and I can see which commits I've looked
+at, and which are still waiting to be reviewed.
 
 ```
 $ git show b76598d
@@ -49,8 +49,8 @@ Tips:
 
 * You can edit notes interactively like so: `git notes edit <commit>`.
 * You can namespace your notes with `--ref` if you want to keep them organised.
-* I like make my notes look like a ["trailer"], just so tools such as tig
-  highlight them nicely.
+* I like to make my notes look like a ["trailer"], because programs like
+  tig will recognise them and highlight them nicely.
 
 The way I think of "reviewed-by" is this: it's like the read/unread status
 on your emails.  It doesn't imply approval, disapproval, or any judgement
@@ -70,12 +70,12 @@ mailing list/whatever.  This is all about _local, private_ review tracking.
 which don't yet have any notes attached.
 
 ```
-$ orpa
+$ orpa status
 Current branch: The following commits are awaiting review:
 
-7cc8026 Use the gitlab raw Query API               1 file changed, 9 insertions(+), 7 deletions(-)
-251ec84 Replace coloured with yansi                3 files changed, 8 insertions(+), 17 deletions(-)
-da05da1 Document the CLI options                   1 file changed, 29 insertions(+), 4 deletions(-)
+  7cc8026 Use the gitlab raw Query API
+  251ec84 Replace coloured with yansi
+  da05da1 Document the CLI options
 
 Review them using "orpa review"
 ```
@@ -114,13 +114,13 @@ pass this range to `orpa` like so:
 $ orpa status 563e5fb..aadb1f9
 563e5fb..aadb1f9: The following commits are awaiting review:
 
-9fbc3f8 Make the notes ref configurable            3 files changed, 8 insertions(+), 17 deletions(-)
-aadb1f9 Use Lazy for CLI opts                      1 file changed, 29 insertions(+), 4 deletions(-)
+  9fbc3f8 Make the notes ref configurable
+  aadb1f9 Use Lazy for CLI opts
 
 Review them using "orpa review 563e5fb..aadb1f9"
 ```
 
-## Configuring MR fetch
+## Configuring `orpa fetch`
 
 Orpa can load the open MRs from your MR tracker and display the unreviewed
 commits in the same way.  Currently it only supports gitlab, but support
@@ -149,9 +149,10 @@ Fetching open MRs for project 1 from gitlab.example.com...
 Now, `orpa status` is giving us some new information:
 
 ```
-$ orpa
+$ orpa status
 Merge requests with unreviewed commits:
-    !84    Add --notes-ref CLI argument (2 unreviewed)
+
+  !84    Add --notes-ref CLI argument (2 unreviewed)
 
 Use "orpa mr" to see the full MR information
 ```
