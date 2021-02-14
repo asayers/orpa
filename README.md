@@ -73,9 +73,9 @@ which don't yet have any notes attached.
 $ orpa
 Current branch: The following commits are awaiting review:
 
-7cc8026 Use the gitlab raw Query API                1 file changed, 9 insertions(+), 7 deletions(-)
-251ec84 Replace coloured with yansi                 3 files changed, 8 insertions(+), 17 deletions(-)
-da05da1 Document the CLI options                    1 file changed, 29 insertions(+), 4 deletions(-)
+7cc8026 Use the gitlab raw Query API               1 file changed, 9 insertions(+), 7 deletions(-)
+251ec84 Replace coloured with yansi                3 files changed, 8 insertions(+), 17 deletions(-)
+da05da1 Document the CLI options                   1 file changed, 29 insertions(+), 4 deletions(-)
 
 Review them using "orpa review"
 ```
@@ -114,13 +114,13 @@ pass this range to `orpa` like so:
 $ orpa status 563e5fb..aadb1f9
 563e5fb..aadb1f9: The following commits are awaiting review:
 
-9fbc3f8 Make the notes ref configurable             3 files changed, 8 insertions(+), 17 deletions(-)
-aadb1f9 Use Lazy instead of OnceCell for CLI opts   1 file changed, 29 insertions(+), 4 deletions(-)
+9fbc3f8 Make the notes ref configurable            3 files changed, 8 insertions(+), 17 deletions(-)
+aadb1f9 Use Lazy for CLI opts                      1 file changed, 29 insertions(+), 4 deletions(-)
 
 Review them using "orpa review 563e5fb..aadb1f9"
 ```
 
-## Listing merge requests
+## Configuring MR fetch
 
 Orpa can load the open MRs from your MR tracker and display the unreviewed
 commits in the same way.  Currently it only supports gitlab, but support
@@ -137,14 +137,16 @@ and put a section like this in your local git repository's .git/config file:
     username = "asayers"
 ```
 
-Grab the latest MRs with `orpa fetch`:
+## Listing merge requests
+
+Let's grab the latest MRs from gitlab with `orpa fetch`:
 
 ```
 $ orpa fetch
 Fetching open MRs for project 1 from gitlab.example.com...
 ```
 
-Now the summary contains some new information:
+Now, `orpa status` is giving us some new information:
 
 ```
 $ orpa
@@ -166,3 +168,39 @@ Date:   2019-12-10 08:42:20.768 UTC
 
     v1 563e5fb..aadb1f9 (0/2 reviewed)
 ```
+
+And there's the range we need to pass to `orpa review`!
+
+## Merge request versions
+
+So we take a look at the commits in merge request !84, and perhaps we send
+some feedback to Joe Smith.  He pushes a new version, and now after we
+`orpa fetch` we see this:
+
+```
+$ orpa mr 84
+merge_request !84
+Author: Joe Smith (@jsmith)
+Date:   2019-12-10 08:42:20.768 UTC
+
+    Add --notes-ref CLI argument
+
+    v1 563e5fb..aadb1f9 (2/2 reviewed)
+    v2 7be3424..de31ea2 (0/3 reviewed)
+```
+
+All the commit hashes in v2 are completely different to v1, so orpa thinks
+that v2 has zero reviewed commits.  We could look through the v2 commits and
+try to spot what's changed, but that's boring and error-prone.  So instead
+let's use `git range-diff`:
+
+```
+$ git range-diff 563e5fb..aadb1f9 7be3424..de31ea2
+1:  9fbc3f82 = 1:  ce0ad59e Make the notes ref configurable
+2:  aadb1f9e = 2:  30bb419c Use Lazy for CLI opts
+-:  -------- > 3:  de31ea2c Rename --hidden to --all
+```
+
+It turns out Joe just rebased and added a commit.  Now when we do `orpa
+review 7be3424..de31ea2` we can mark the first two as seen without thinking,
+and then take a closer look at the third one.
