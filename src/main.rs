@@ -147,7 +147,7 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
             .peekable();
         let some_mrs = visible_mrs.peek().is_some();
         if some_mrs {
-            println!("\nMerge requests with unreviewed commits:");
+            println!("\nMerge requests with unreviewed commits:\n");
         }
         for mr in visible_mrs {
             let latest_rev = db.get_revs(mr).last().unwrap()?;
