@@ -8,7 +8,7 @@ use git2::{Oid, Repository};
 use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
 use once_cell::sync::OnceCell;
 use std::io::{stdin, stdout, BufRead, Write};
-use std::{fs::File, path::PathBuf, process::Command};
+use std::{fs::File, process::Command};
 use structopt::StructOpt;
 use tracing::*;
 use yansi::Paint;
@@ -88,8 +88,8 @@ fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let repo = Repository::open_from_env()?;
     match opts().cmd.clone() {
-        None => summary(&repo, None, None),
-        Some(Cmd::Status { range }) => summary(&repo, range, opts().db.clone()),
+        None => summary(&repo, None),
+        Some(Cmd::Status { range }) => summary(&repo, range),
         Some(Cmd::Review { range }) => review(&repo, range),
         Some(Cmd::Next { range }) => next(&repo, range),
         Some(Cmd::List { range }) => list(&repo, range),
@@ -105,17 +105,13 @@ fn main() -> anyhow::Result<()> {
             "checkpoint",
         ),
         Some(Cmd::GC) => Err(anyhow!("Auto-checkpointing not implemented yet")),
-        Some(Cmd::Fetch) => fetch(&repo, opts().db.clone()),
-        Some(Cmd::Mr { mr }) => merge_request(&repo, opts().db.clone(), mr),
-        Some(Cmd::Mrs { all }) => merge_requests(&repo, opts().db.clone(), all),
+        Some(Cmd::Fetch) => fetch(&repo),
+        Some(Cmd::Mr { mr }) => merge_request(&repo, mr),
+        Some(Cmd::Mrs { all }) => merge_requests(&repo, all),
     }
 }
 
-fn summary(
-    repo: &Repository,
-    range: Option<String>,
-    db_path: Option<PathBuf>,
-) -> anyhow::Result<()> {
+fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
     let mut new = vec![];
     walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
     let n_new = new.len();
@@ -145,7 +141,7 @@ fn summary(
 
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
-    let (mrs, db) = cached_mrs(repo, db_path)?;
+    let (mrs, db) = cached_mrs(repo)?;
     let mut visible_mrs = mrs
         .iter()
         .filter(|mr| !(mr.work_in_progress || mr.author.username == me))
@@ -262,7 +258,7 @@ fn add_note(repo: &Repository, oid: Oid, verb: &str) -> anyhow::Result<()> {
     append_note(repo, oid, &new_note)
 }
 
-fn fetch(repo: &Repository, db_path: Option<PathBuf>) -> anyhow::Result<()> {
+fn fetch(repo: &Repository) -> anyhow::Result<()> {
     info!("Loading the config");
     let config = repo.config()?;
     let gitlab_host = config.get_string("gitlab.url")?;
@@ -270,7 +266,10 @@ fn fetch(repo: &Repository, db_path: Option<PathBuf>) -> anyhow::Result<()> {
     let project_id = ProjectId::new(config.get_i64("gitlab.projectId")? as u64);
 
     info!("Opening the database");
-    let db_path = db_path.unwrap_or_else(|| repo.path().join("merge_requests"));
+    let db_path = opts()
+        .db
+        .clone()
+        .unwrap_or_else(|| repo.path().join("merge_requests"));
     let db = mr_db::Db::open(&db_path)?;
 
     info!("Connecting to gitlab at {}", &gitlab_host);
@@ -294,26 +293,22 @@ fn fetch(repo: &Repository, db_path: Option<PathBuf>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn cached_mrs(
-    repo: &Repository,
-    db_path: Option<PathBuf>,
-) -> anyhow::Result<(Vec<MergeRequest>, mr_db::Db)> {
-    let db_path = db_path.unwrap_or_else(|| repo.path().join("merge_requests"));
+fn cached_mrs(repo: &Repository) -> anyhow::Result<(Vec<MergeRequest>, mr_db::Db)> {
+    let db_path = opts()
+        .db
+        .clone()
+        .unwrap_or_else(|| repo.path().join("merge_requests"));
     let db = mr_db::Db::open(&db_path)?;
     let mr_cache_path = db_path.join("mr_cache");
     let mrs: Vec<_> = serde_json::from_reader(File::open(mr_cache_path)?)?;
     Ok((mrs, db))
 }
 
-fn merge_request(
-    repo: &Repository,
-    db_path: Option<PathBuf>,
-    target: String,
-) -> anyhow::Result<()> {
+fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
     let target: u64 = target.trim_matches(|c: char| !c.is_numeric()).parse()?;
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
-    let (mrs, db) = cached_mrs(repo, db_path)?;
+    let (mrs, db) = cached_mrs(repo)?;
     if let Some(mr) = mrs.iter().find(|mr| mr.iid.value() == target) {
         print_mr(&me, &mr);
         for x in db.get_revs(mr) {
@@ -324,14 +319,10 @@ fn merge_request(
     Ok(())
 }
 
-fn merge_requests(
-    repo: &Repository,
-    db_path: Option<PathBuf>,
-    include_all: bool,
-) -> anyhow::Result<()> {
+fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
-    let (mrs, db) = cached_mrs(repo, db_path)?;
+    let (mrs, db) = cached_mrs(repo)?;
     for mr in mrs
         .iter()
         .filter(|mr| include_all || (!mr.work_in_progress && mr.author.username != me))
