@@ -83,19 +83,9 @@ enum Cmd {
     },
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     OPTS.set(Opts::from_args()).unwrap();
     tracing_subscriber::fmt::init();
-    match main_2() {
-        Ok(()) => (),
-        Err(e) => {
-            error!("{}", e);
-            std::process::exit(1);
-        }
-    }
-}
-
-fn main_2() -> anyhow::Result<()> {
     let repo = Repository::open_from_env()?;
     match opts().cmd.clone() {
         None => summary(&repo, None, None),
