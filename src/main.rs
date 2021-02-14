@@ -6,17 +6,14 @@ use crate::review_db::*;
 use anyhow::anyhow;
 use git2::{Oid, Repository};
 use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
-use once_cell::sync::OnceCell;
+use once_cell::sync::Lazy;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::{fs::File, process::Command};
 use structopt::StructOpt;
 use tracing::*;
 use yansi::Paint;
 
-static OPTS: OnceCell<Opts> = OnceCell::new();
-fn opts() -> &'static Opts {
-    OPTS.get().unwrap()
-}
+static OPTS: Lazy<Opts> = Lazy::new(|| Opts::from_args());
 
 /// A tool for tracking private code review
 #[derive(StructOpt, Debug)]
@@ -84,10 +81,9 @@ enum Cmd {
 }
 
 fn main() -> anyhow::Result<()> {
-    OPTS.set(Opts::from_args()).unwrap();
     tracing_subscriber::fmt::init();
     let repo = Repository::open_from_env()?;
-    match opts().cmd.clone() {
+    match OPTS.cmd.clone() {
         None => summary(&repo, None),
         Some(Cmd::Status { range }) => summary(&repo, range),
         Some(Cmd::Review { range }) => review(&repo, range),
@@ -266,7 +262,7 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
     let project_id = ProjectId::new(config.get_i64("gitlab.projectId")? as u64);
 
     info!("Opening the database");
-    let db_path = opts()
+    let db_path = OPTS
         .db
         .clone()
         .unwrap_or_else(|| repo.path().join("merge_requests"));
@@ -294,7 +290,7 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
 }
 
 fn cached_mrs(repo: &Repository) -> anyhow::Result<(Vec<MergeRequest>, mr_db::Db)> {
-    let db_path = opts()
+    let db_path = OPTS
         .db
         .clone()
         .unwrap_or_else(|| repo.path().join("merge_requests"));
