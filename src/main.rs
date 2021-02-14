@@ -70,7 +70,7 @@ pub enum Cmd {
     Mr {
         /// The merge request to show.  Must be an integer.  It can optionally
         /// be prefixed with a '!'.
-        mr: String,
+        id: String,
     },
     /// Show merge requests
     ///
@@ -104,7 +104,7 @@ fn main() -> anyhow::Result<()> {
         ),
         Some(Cmd::GC) => Err(anyhow!("Auto-checkpointing not implemented yet")),
         Some(Cmd::Fetch) => fetch(&repo),
-        Some(Cmd::Mr { mr }) => merge_request(&repo, mr),
+        Some(Cmd::Mr { id }) => merge_request(&repo, id),
         Some(Cmd::Mrs { all }) => merge_requests(&repo, all),
     }
 }
@@ -177,7 +177,7 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
             }
         }
         if some_mrs {
-            println!("\nUse \"orpa mrs\" to see the full MR information");
+            println!("\nUse \"orpa mr <id>\" to see the full MR information");
         }
     }
     Ok(())
