@@ -1,4 +1,4 @@
-<h1 align="center">Tracking seen/unseen commits</h1>
+<h1 align="center">Tracking read/unread commits</h1>
 
 If you work on a small to medium sized project, I believe you should probably
 be reading every commit the gets merged to master.  I don't mean you actually
@@ -6,7 +6,7 @@ have to review the diff - just read the description and glance at the diffstat.
 It helps you maintain some sense of who's doing what, and what's going on.
 
 (If, on the other hand, you work at a giant company with a monorepo, then
-I'm sorry: this document is not going to be very applicable to you.)
+this document is not going to be very applicable to you.)
 
 Once upon a time, I would pull master and check to see what had come down
 the pipe like so:
@@ -20,16 +20,18 @@ This works, but if you don't look through the new commits then-and-there you
 can lose track of which ones you've looked at.  I wanted a way to track the
 "read/unread" status of each commit.
 
+## Enter git-notes
+
 Well, git gives you a way to leave notes on commits.  It's called [`git
-notes`].  So I started marking the commits I'd looked at by attaching a note
-to them.  You use it like this:
+notes`].  You use it like this:
 
 ```
 $ git notes add b76598d -m 'Reviewed-by: Alex Sayers <alex@asayers.com>'
 ```
 
+So, I started marking the commits I'd looked at by attaching a note to them.
 Now, the notes show up in `git log` and you can see which commits you've
-looked at and which are waiting to be reviewed.
+looked at, and which are still waiting to be reviewed.
 
 ```
 $ git show b76598d
@@ -71,9 +73,9 @@ which don't yet have any notes attached.
 $ orpa
 Current branch: The following commits are awaiting review:
 
-7cc8026 Use the gitlab raw Query API                 1 file changed, 9 insertions(+), 7 deletions(-)
-251ec84 Replace coloured with yansi                  3 files changed, 8 insertions(+), 17 deletions(-)
-da05da1 Document the CLI options                     1 file changed, 29 insertions(+), 4 deletions(-)
+7cc8026 Use the gitlab raw Query API                1 file changed, 9 insertions(+), 7 deletions(-)
+251ec84 Replace coloured with yansi                 3 files changed, 8 insertions(+), 17 deletions(-)
+da05da1 Document the CLI options                    1 file changed, 29 insertions(+), 4 deletions(-)
 
 Review them using "orpa review"
 ```
@@ -112,8 +114,8 @@ pass this range to `orpa` like so:
 $ orpa status 563e5fb..aadb1f9
 563e5fb..aadb1f9: The following commits are awaiting review:
 
-9fbc3f8 Make the notes ref configurable              3 files changed, 8 insertions(+), 17 deletions(-)
-aadb1f9 Use Lazy instead of OnceCell for CLI opts    1 file changed, 29 insertions(+), 4 deletions(-)
+9fbc3f8 Make the notes ref configurable             3 files changed, 8 insertions(+), 17 deletions(-)
+aadb1f9 Use Lazy instead of OnceCell for CLI opts   1 file changed, 29 insertions(+), 4 deletions(-)
 
 Review them using "orpa review 563e5fb..aadb1f9"
 ```
