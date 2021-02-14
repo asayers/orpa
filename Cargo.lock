@@ -1065,6 +1065,7 @@ dependencies = [
  "git2",
  "gitlab",
  "itertools 0.10.0",
+ "once_cell",
  "serde_json",
  "sled",
  "structopt",

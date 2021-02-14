@@ -6,21 +6,27 @@ use crate::review_db::*;
 use anyhow::anyhow;
 use git2::{Oid, Repository};
 use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
+use once_cell::sync::OnceCell;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::{fs::File, path::PathBuf, process::Command};
 use structopt::StructOpt;
 use tracing::*;
 use yansi::Paint;
 
+static OPTS: OnceCell<Opts> = OnceCell::new();
+fn opts() -> &'static Opts {
+    OPTS.get().unwrap()
+}
+
 /// A tool for tracking private code review
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug)]
 struct Opts {
     #[structopt(subcommand)]
     cmd: Option<Cmd>,
     #[structopt(long)]
     db: Option<std::path::PathBuf>,
 }
-#[derive(StructOpt)]
+#[derive(StructOpt, Debug, Clone)]
 enum Cmd {
     /// Summarize the review status
     Status { range: Option<String> },
@@ -78,9 +84,9 @@ enum Cmd {
 }
 
 fn main() {
-    let opts = Opts::from_args();
+    OPTS.set(Opts::from_args()).unwrap();
     tracing_subscriber::fmt::init();
-    match main_2(opts) {
+    match main_2() {
         Ok(()) => (),
         Err(e) => {
             error!("{}", e);
@@ -89,11 +95,11 @@ fn main() {
     }
 }
 
-fn main_2(opts: Opts) -> anyhow::Result<()> {
+fn main_2() -> anyhow::Result<()> {
     let repo = Repository::open_from_env()?;
-    match opts.cmd {
+    match opts().cmd.clone() {
         None => summary(&repo, None, None),
-        Some(Cmd::Status { range }) => summary(&repo, range, opts.db),
+        Some(Cmd::Status { range }) => summary(&repo, range, opts().db.clone()),
         Some(Cmd::Review { range }) => review(&repo, range),
         Some(Cmd::Next { range }) => next(&repo, range),
         Some(Cmd::List { range }) => list(&repo, range),
@@ -109,9 +115,9 @@ fn main_2(opts: Opts) -> anyhow::Result<()> {
             "checkpoint",
         ),
         Some(Cmd::GC) => Err(anyhow!("Auto-checkpointing not implemented yet")),
-        Some(Cmd::Fetch) => fetch(&repo, opts.db),
-        Some(Cmd::Mr { mr }) => merge_request(&repo, opts.db, mr),
-        Some(Cmd::Mrs { all }) => merge_requests(&repo, opts.db, all),
+        Some(Cmd::Fetch) => fetch(&repo, opts().db.clone()),
+        Some(Cmd::Mr { mr }) => merge_request(&repo, opts().db.clone(), mr),
+        Some(Cmd::Mrs { all }) => merge_requests(&repo, opts().db.clone(), all),
     }
 }
 
