@@ -1,10 +1,9 @@
+use crate::OPTS;
 use chrono::NaiveDateTime;
 use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree};
 use itertools::Itertools;
 use std::collections::HashSet;
 use yansi::Paint;
-
-const NOTES_REF: &str = "refs/notes/orpa";
 
 pub fn append_note(repo: &Repository, oid: Oid, new_note: &str) -> anyhow::Result<()> {
     let sig = repo.signature()?;
@@ -17,13 +16,15 @@ pub fn append_note(repo: &Repository, oid: Oid, new_note: &str) -> anyhow::Resul
     }
     notes.insert(new_note);
     let combined_note = notes.iter().join("\n");
-    repo.note(&sig, &sig, Some(NOTES_REF), oid, &combined_note, true)?;
+    let notes_ref = OPTS.notes_ref.as_ref().map(|x| x.as_str());
+    repo.note(&sig, &sig, notes_ref, oid, &combined_note, true)?;
     println!("{}: {}", oid, notes.iter().join(", "));
     Ok(())
 }
 
 pub fn get_note(repo: &Repository, oid: Oid) -> anyhow::Result<Option<String>> {
-    match repo.find_note(Some(NOTES_REF), oid) {
+    let notes_ref = OPTS.notes_ref.as_ref().map(|x| x.as_str());
+    match repo.find_note(notes_ref, oid) {
         Ok(note) => Ok(note.message().map(|x| x.to_owned())),
         Err(e) if e.code() == ErrorCode::NotFound => Ok(None),
         Err(e) => Err(e.into()),

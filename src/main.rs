@@ -13,18 +13,20 @@ use structopt::StructOpt;
 use tracing::*;
 use yansi::Paint;
 
-static OPTS: Lazy<Opts> = Lazy::new(|| Opts::from_args());
+pub static OPTS: Lazy<Opts> = Lazy::new(|| Opts::from_args());
 
 /// A tool for tracking private code review
 #[derive(StructOpt, Debug)]
-struct Opts {
+pub struct Opts {
     #[structopt(subcommand)]
-    cmd: Option<Cmd>,
+    pub cmd: Option<Cmd>,
     #[structopt(long)]
-    db: Option<std::path::PathBuf>,
+    pub db: Option<std::path::PathBuf>,
+    #[structopt(long)]
+    pub notes_ref: Option<String>,
 }
 #[derive(StructOpt, Debug, Clone)]
-enum Cmd {
+pub enum Cmd {
     /// Summarize the review status
     Status { range: Option<String> },
     /// Interactively review waiting commits
