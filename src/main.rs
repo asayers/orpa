@@ -8,7 +8,7 @@ use git2::{Oid, Repository};
 use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
 use once_cell::sync::Lazy;
 use std::io::{stdin, stdout, BufRead, Write};
-use std::{fs::File, process::Command};
+use std::{fs::File, path::PathBuf, process::Command};
 use structopt::StructOpt;
 use tracing::*;
 use yansi::Paint;
@@ -266,10 +266,7 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
     let project_id = ProjectId::new(config.get_i64("gitlab.projectId")? as u64);
 
     info!("Opening the database");
-    let db_path = OPTS
-        .db
-        .clone()
-        .unwrap_or_else(|| repo.path().join("merge_requests"));
+    let db_path = db_path(repo);
     let db = mr_db::Db::open(&db_path)?;
 
     info!("Connecting to gitlab at {}", &gitlab_host);
@@ -293,11 +290,12 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn db_path(repo: &Repository) -> PathBuf {
+    OPTS.db.clone().unwrap_or_else(|| repo.path().join("orpa"))
+}
+
 fn cached_mrs(repo: &Repository) -> anyhow::Result<(Vec<MergeRequest>, mr_db::Db)> {
-    let db_path = OPTS
-        .db
-        .clone()
-        .unwrap_or_else(|| repo.path().join("merge_requests"));
+    let db_path = db_path(repo);
     let db = mr_db::Db::open(&db_path)?;
     let mr_cache_path = db_path.join("mr_cache");
     let mrs: Vec<_> = serde_json::from_reader(File::open(mr_cache_path)?)?;
