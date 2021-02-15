@@ -141,15 +141,12 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
     if let Ok((mrs, db)) = cached_mrs(repo) {
         let config = repo.config()?;
         let me = config.get_string("gitlab.username")?;
-        let mut visible_mrs = mrs
+
+        let mut visible_mrs = vec![];
+        for mr in mrs
             .iter()
             .filter(|mr| !(mr.work_in_progress || mr.author.username == me))
-            .peekable();
-        let some_mrs = visible_mrs.peek().is_some();
-        if some_mrs {
-            println!("\nMerge requests with unreviewed commits:\n");
-        }
-        for mr in visible_mrs {
+        {
             let latest_rev = db.get_revs(mr).last().unwrap()?;
             let range = format!("{}..{}", latest_rev.base, latest_rev.head);
             let mut n_unreviewed = 0;
@@ -157,26 +154,39 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
                 n_unreviewed += 1;
             })?;
             if n_unreviewed > 0 {
-                if mr.assignees.iter().flatten().any(|x| x.username == me) {
-                    println!(
-                        "    {}{:<5} {} ({} unreviewed)",
-                        Paint::yellow("!").bold(),
-                        Paint::yellow(mr.iid.value()).bold(),
-                        Paint::new(&mr.title).bold(),
-                        Paint::new(n_unreviewed),
-                    );
-                } else {
-                    println!(
-                        "    {}{:<5} {} ({} unreviewed)",
-                        Paint::yellow("!"),
-                        Paint::yellow(mr.iid.value()),
-                        &mr.title,
-                        n_unreviewed,
-                    );
-                }
+                visible_mrs.push((mr, n_unreviewed));
             }
         }
-        if some_mrs {
+
+        if visible_mrs.len() > 0 {
+            println!("\nMerge requests with unreviewed commits:\n");
+        }
+        for (mr, n_unreviewed) in visible_mrs.iter().take(10) {
+            if mr.assignees.iter().flatten().any(|x| x.username == me) {
+                println!(
+                    "    {}{:<5} {} ({} unreviewed)",
+                    Paint::yellow("!").bold(),
+                    Paint::yellow(mr.iid.value()).bold(),
+                    Paint::new(&mr.title).bold(),
+                    Paint::new(n_unreviewed),
+                );
+            } else {
+                println!(
+                    "    {}{:<5} {} ({} unreviewed)",
+                    Paint::yellow("!"),
+                    Paint::yellow(mr.iid.value()),
+                    &mr.title,
+                    n_unreviewed,
+                );
+            }
+        }
+        if visible_mrs.len() > 10 {
+            println!(
+                "...and {} more (use \"orpa mrs\" to see them)",
+                visible_mrs.len() - 10,
+            );
+        }
+        if visible_mrs.len() > 0 {
             println!("\nUse \"orpa mr <id>\" to see the full MR information");
         }
     }
