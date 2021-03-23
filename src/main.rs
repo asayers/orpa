@@ -172,7 +172,7 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
         for (mr, n_unreviewed) in visible_mrs.iter().take(10) {
             if mr.assignees.iter().flatten().any(|x| x.username == me) {
                 println!(
-                    "    {}{:<5} {} ({} unreviewed)",
+                    "  {}{:<6} {} ({} unreviewed)",
                     Paint::yellow("!").bold(),
                     Paint::yellow(mr.iid.value()).bold(),
                     Paint::new(&mr.title).bold(),
@@ -180,7 +180,7 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
                 );
             } else {
                 println!(
-                    "    {}{:<5} {} ({} unreviewed)",
+                    "  {}{:<6} {} ({} unreviewed)",
                     Paint::yellow("!"),
                     Paint::yellow(mr.iid.value()),
                     &mr.title,
@@ -327,10 +327,10 @@ fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
     let (mrs, db) = cached_mrs(repo)?;
     if let Some(mr) = mrs.iter().find(|mr| mr.iid.value() == target) {
         print_mr(&me, &mr);
+        println!();
         for x in db.get_revs(mr) {
             print_rev(&repo, x?)?;
         }
-        println!();
     }
     Ok(())
 }
@@ -344,6 +344,7 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
         .filter(|mr| include_all || (!mr.work_in_progress && mr.author.username != me))
     {
         print_mr(&me, &mr);
+        println!();
         for x in db.get_revs(mr) {
             print_rev(&repo, x?)?;
         }
@@ -371,7 +372,6 @@ fn print_rev(repo: &Repository, rev: RevInfo) -> anyhow::Result<()> {
             n_total,
         )
     };
-    println!();
     let base = repo.find_commit(base)?;
     let head = repo.find_commit(head)?;
     println!(
