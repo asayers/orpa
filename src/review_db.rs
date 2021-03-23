@@ -103,14 +103,10 @@ pub fn time_to_chrono(time: Time) -> chrono::NaiveDateTime {
 
 pub fn show_commit_oneline(repo: &Repository, oid: Oid) -> anyhow::Result<()> {
     let c = repo.find_commit(oid)?;
-    // FIXME: Stats are wrong for merge commits
-    let diff = commit_diff(repo, &c)?;
-    let stats = diff.stats()?.to_buf(DiffStatsFormat::SHORT, 20)?;
     println!(
-        "  {} {:<80} {}",
+        "  {} {}",
         Paint::yellow(c.as_object().short_id()?.as_str().unwrap_or("")),
         c.summary().unwrap_or(""),
-        Paint::blue(stats.as_str().unwrap_or("").trim()),
     );
     Ok(())
 }
