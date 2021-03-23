@@ -67,10 +67,26 @@ pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
             } else if commit.parent_count() > 1 {
                 Ok(Status::Merge)
             } else {
-                Ok(Status::New)
+                let mut reviewed = false;
+                // FIXME: Don't build this list on every lookup()
+                for recent_oid in recent_notes(repo)? {
+                    let recent_c = repo.find_commit(recent_oid)?;
+                    reviewed |= commits_same(repo, &recent_c, &commit)?;
+                }
+                if reviewed {
+                    tracing::info!("Found a commit that matches!");
+                    // TODO: Copy over the note
+                    Ok(Status::Reviewed)
+                } else {
+                    Ok(Status::New)
+                }
             }
         }
     }
+}
+
+fn commits_same(repo: &Repository, x: &Commit, y: &Commit) -> anyhow::Result<bool> {
+    Ok(commit_diff_text(repo, x)? == commit_diff_text(repo, y)?)
 }
 
 pub fn walk_new(
@@ -119,6 +135,17 @@ pub fn commit_diff<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<Diff<
         Err(e) => Err(e)?,
     };
     Ok(repo.diff_tree_to_tree(Some(&base), Some(&c.tree()?), None)?)
+}
+
+/// The textual diff of a commit against its first parent
+pub fn commit_diff_text<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<String> {
+    Ok(commit_diff(repo, c)?
+        .format_email(1, 1, c, None)?
+        .as_str()
+        .unwrap()
+        .lines()
+        .skip(3) // Drop the OID, author, and date
+        .join("\n"))
 }
 
 pub fn empty_tree(repo: &Repository) -> anyhow::Result<Tree> {
