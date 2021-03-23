@@ -1,4 +1,5 @@
 use crate::OPTS;
+use anyhow::anyhow;
 use chrono::NaiveDateTime;
 use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree};
 use itertools::Itertools;
@@ -35,6 +36,23 @@ pub fn get_note(repo: &Repository, oid: Oid) -> anyhow::Result<Option<String>> {
         Err(e) if e.code() == ErrorCode::NotFound => Ok(None),
         Err(e) => Err(e.into()),
     }
+}
+
+/// Actually returns all notes...
+pub fn recent_notes(repo: &Repository) -> anyhow::Result<Vec<Oid>> {
+    let notes_ref = notes_ref();
+    let notes_ref = notes_ref
+        .as_ref()
+        .map_or("refs/notes/commits", |x| x.as_str());
+    let tree = repo.find_reference(notes_ref)?.peel_to_commit()?.tree()?;
+    let mut ret = Vec::with_capacity(tree.len());
+    for x in tree.iter() {
+        let name = x
+            .name()
+            .ok_or(anyhow!("Commit is not even unicode, let alone hex!"))?;
+        ret.push(Oid::from_str(name)?);
+    }
+    Ok(ret)
 }
 
 pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {

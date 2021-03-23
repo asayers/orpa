@@ -80,6 +80,8 @@ pub enum Cmd {
         #[structopt(long, short)]
         all: bool,
     },
+    /// Show recent reviews
+    Recent,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -106,6 +108,12 @@ fn main() -> anyhow::Result<()> {
         Some(Cmd::Fetch) => fetch(&repo),
         Some(Cmd::Mr { id }) => merge_request(&repo, id),
         Some(Cmd::Mrs { all }) => merge_requests(&repo, all),
+        Some(Cmd::Recent) => {
+            for x in review_db::recent_notes(&repo)? {
+                println!("{}", x);
+            }
+            Ok(())
+        }
     }
 }
 
