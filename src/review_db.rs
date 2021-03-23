@@ -3,6 +3,7 @@ use anyhow::anyhow;
 use chrono::NaiveDateTime;
 use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree};
 use itertools::Itertools;
+use once_cell::sync::OnceCell;
 use std::collections::HashSet;
 use yansi::Paint;
 
@@ -55,6 +56,22 @@ pub fn recent_notes(repo: &Repository) -> anyhow::Result<Vec<Oid>> {
     Ok(ret)
 }
 
+fn recent_note_digests(repo: &Repository) -> anyhow::Result<&[(Oid, sha1::Digest)]> {
+    static RECENT_DIGESTS: OnceCell<Vec<(Oid, sha1::Digest)>> = OnceCell::new();
+    Ok(RECENT_DIGESTS
+        .get_or_try_init(|| {
+            recent_notes(repo)?
+                .into_iter()
+                .map(|oid| {
+                    let commit = repo.find_commit(oid)?;
+                    let digest = commit_diff_digest(repo, &commit)?;
+                    Ok((oid, digest))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()
+        })?
+        .as_slice())
+}
+
 pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
     match get_note(repo, oid)? {
         Some(note) if note.lines().any(|x| x == "checkpoint") => Ok(Status::Checkpoint),
@@ -68,10 +85,12 @@ pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
                 Ok(Status::Merge)
             } else {
                 let mut reviewed = false;
-                // FIXME: Don't build this list on every lookup()
-                for recent_oid in recent_notes(repo)? {
-                    let recent_c = repo.find_commit(recent_oid)?;
-                    reviewed |= commits_same(repo, &recent_c, &commit)?;
+                let digest = commit_diff_digest(repo, &commit)?;
+                for &(_, recent_digest) in recent_note_digests(repo)? {
+                    if recent_digest == digest {
+                        reviewed = true;
+                        break;
+                    }
                 }
                 if reviewed {
                     tracing::info!("Found a commit that matches!");
@@ -83,10 +102,6 @@ pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
             }
         }
     }
-}
-
-fn commits_same(repo: &Repository, x: &Commit, y: &Commit) -> anyhow::Result<bool> {
-    Ok(commit_diff_text(repo, x)? == commit_diff_text(repo, y)?)
 }
 
 pub fn walk_new(
@@ -137,15 +152,16 @@ pub fn commit_diff<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<Diff<
     Ok(repo.diff_tree_to_tree(Some(&base), Some(&c.tree()?), None)?)
 }
 
-/// The textual diff of a commit against its first parent
-pub fn commit_diff_text<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<String> {
-    Ok(commit_diff(repo, c)?
+/// The SHA1 of the textual diff of a commit against its first parent
+pub fn commit_diff_digest<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<sha1::Digest> {
+    let diff = commit_diff(repo, c)?
         .format_email(1, 1, c, None)?
         .as_str()
         .unwrap()
         .lines()
         .skip(3) // Drop the OID, author, and date
-        .join("\n"))
+        .join("\n");
+    Ok(sha1::Sha1::from(diff).digest())
 }
 
 pub fn empty_tree(repo: &Repository) -> anyhow::Result<Tree> {
