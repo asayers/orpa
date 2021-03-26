@@ -255,6 +255,9 @@ fn review(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
                 "mark" => break Some("Reviewed".into()),
                 x if x.starts_with("mark ") => break Some(String::from(&x[5..])),
                 "tig" => run_tig(),
+                "similar" => for (oid, x) in similiar_commits(&repo, &repo.find_commit(oid)?)?.into_iter().take(5) {
+                    println!("{} (score: {})", oid, x.score());
+                }
                 "" => (), // loop
                 x => println!("Didn't understand command: {}", x),
             }
