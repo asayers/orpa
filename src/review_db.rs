@@ -72,6 +72,21 @@ fn recent_note_digests(repo: &Repository) -> anyhow::Result<&[(Oid, sha1::Digest
         .as_slice())
 }
 
+/// Iterate over the lines in the commit's textual representation.
+///
+/// Covers the commit message and diff, but no other metadata.
+macro_rules! commit_lines {
+    ($repo:expr, $commit: expr) => {
+        commit_diff($repo, $commit)?
+            .format_email(1, 1, $commit, None)?
+            .as_str()
+            .unwrap()
+            .lines()
+            // Drop the OID, author, and date
+            .skip(3)
+    };
+}
+
 pub fn similiar_commits(repo: &Repository, c: &Commit) -> anyhow::Result<Vec<(Oid, usize)>> {
     let mut scores: HashMap<Oid, usize> = HashMap::new();
     let idx = recent_note_fingerprints(repo)?;
@@ -203,13 +218,7 @@ pub fn commit_diff<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<Diff<
 
 /// The SHA1 of the textual diff of a commit against its first parent
 pub fn commit_diff_digest<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<sha1::Digest> {
-    let diff = commit_diff(repo, c)?
-        .format_email(1, 1, c, None)?
-        .as_str()
-        .unwrap()
-        .lines()
-        .skip(3) // Drop the OID, author, and date
-        .join("\n");
+    let diff = commit_lines!(repo, c).join("\n");
     Ok(sha1::Sha1::from(diff).digest())
 }
 
