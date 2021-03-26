@@ -30,14 +30,22 @@ pub struct Opts {
 #[derive(StructOpt, Debug, Clone)]
 pub enum Cmd {
     /// Summarize the review status
-    Status { range: Option<String> },
+    Status {
+        range: Option<String>,
+    },
     /// Interactively review waiting commits
     #[structopt(alias = "r")]
-    Review { range: Option<String> },
+    Review {
+        range: Option<String>,
+    },
     /// Inspect the oldest unreviewed commit
-    Next { range: Option<String> },
+    Next {
+        range: Option<String>,
+    },
     /// List all unreviewed commits
-    List { range: Option<String> },
+    List {
+        range: Option<String>,
+    },
     /// Show the status of a commit
     Show {
         /// The commit to show the status of.  It can be a revision such as
@@ -84,6 +92,9 @@ pub enum Cmd {
     },
     /// Show recent reviews
     Recent,
+    Similar {
+        revspec: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -113,6 +124,16 @@ fn main() -> anyhow::Result<()> {
         Some(Cmd::Recent) => {
             for x in review_db::recent_notes(&repo)? {
                 println!("{}", x);
+            }
+            Ok(())
+        }
+        Some(Cmd::Similar { revspec }) => {
+            for (oid, score) in
+                similiar_commits(&repo, &repo.revparse_single(&revspec)?.peel_to_commit()?)?
+                    .into_iter()
+                    .take(10)
+            {
+                println!("{} (score: {})", oid, score);
             }
             Ok(())
         }

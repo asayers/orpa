@@ -4,7 +4,7 @@ use chrono::NaiveDateTime;
 use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree};
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use yansi::Paint;
 
 pub fn append_note(repo: &Repository, oid: Oid, new_note: &str) -> anyhow::Result<()> {
@@ -70,6 +70,53 @@ fn recent_note_digests(repo: &Repository) -> anyhow::Result<&[(Oid, sha1::Digest
                 .collect::<anyhow::Result<Vec<_>>>()
         })?
         .as_slice())
+}
+
+pub fn similiar_commits(repo: &Repository, c: &Commit) -> anyhow::Result<Vec<(Oid, usize)>> {
+    let mut scores: HashMap<Oid, usize> = HashMap::new();
+    let idx = recent_note_fingerprints(repo)?;
+    for line in commit_diff(repo, c)?
+        .format_email(1, 1, c, None)?
+        .as_str()
+        .unwrap()
+        .lines()
+        // Drop the OID, author, and date
+        .skip(3)
+    {
+        let digest = sha1::Sha1::from(line.as_bytes()).digest();
+        for &oid in idx.get(&digest).into_iter().flatten() {
+            *(scores.entry(oid).or_default()) += 1;
+        }
+    }
+    let mut scores = scores.into_iter().collect::<Vec<_>>();
+    scores.sort_by_key(|(_, x)| std::cmp::Reverse(*x));
+    Ok(scores)
+}
+
+pub fn recent_note_fingerprints(
+    repo: &Repository,
+) -> anyhow::Result<&HashMap<sha1::Digest, Vec<Oid>>> {
+    static INVERTED_INDEX: OnceCell<HashMap<sha1::Digest, Vec<Oid>>> = OnceCell::new();
+    Ok(INVERTED_INDEX.get_or_try_init(|| {
+        let time = std::time::Instant::now();
+        let mut idx: HashMap<sha1::Digest, Vec<Oid>> = HashMap::new();
+        for oid in recent_notes(repo)? {
+            let commit = repo.find_commit(oid)?;
+            for line in commit_diff(repo, &commit)?
+                .format_email(1, 1, &commit, None)?
+                .as_str()
+                .unwrap()
+                .lines()
+                // Drop the OID, author, and date
+                .skip(3)
+            {
+                let digest = sha1::Sha1::from(line.as_bytes()).digest();
+                idx.entry(digest).or_default().push(oid);
+            }
+        }
+        tracing::info!("Created inverted index in {:?}", time.elapsed());
+        Ok::<_, anyhow::Error>(idx)
+    })?)
 }
 
 pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
