@@ -128,12 +128,12 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(Cmd::Similar { revspec }) => {
-            for (oid, score) in
+            for (oid, x) in
                 similiar_commits(&repo, &repo.revparse_single(&revspec)?.peel_to_commit()?)?
                     .into_iter()
                     .take(10)
             {
-                println!("{} (score: {})", oid, score);
+                println!("{} (score: {:.02}%)", oid, x.score() * 100.);
             }
             Ok(())
         }

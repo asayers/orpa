@@ -87,51 +87,95 @@ macro_rules! commit_lines {
     };
 }
 
-pub fn similiar_commits(repo: &Repository, c: &Commit) -> anyhow::Result<Vec<(Oid, usize)>> {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Comparison {
+    // Total number of unique lines in the left
+    pub lines_in_left: usize,
+    // Number of unique lines in both left and right
+    pub lines_in_both: usize,
+    // Total number of unique lines in the right
+    pub lines_in_right: usize,
+}
+
+impl Comparison {
+    pub fn score(self) -> f64 {
+        2. * self.lines_in_both as f64 / (self.lines_in_left as f64 + self.lines_in_right as f64)
+    }
+}
+
+/// For each reviewed commit, compute its similarity to the given commit.
+///
+/// Simliarity is defined as follows:
+///
+/// > number of distinct lines in common / number of distinct lines
+///
+/// Note that this means that a commit which is a superset will get a
+/// perfect score.
+pub fn similiar_commits(repo: &Repository, c: &Commit) -> anyhow::Result<Vec<(Oid, Comparison)>> {
     let mut scores: HashMap<Oid, usize> = HashMap::new();
-    let idx = recent_note_fingerprints(repo)?;
-    for line in commit_diff(repo, c)?
-        .format_email(1, 1, c, None)?
-        .as_str()
-        .unwrap()
-        .lines()
-        // Drop the OID, author, and date
-        .skip(3)
-    {
-        let digest = sha1::Sha1::from(line.as_bytes()).digest();
-        for &oid in idx.get(&digest).into_iter().flatten() {
+    let idx = &LineIdx::get(repo)?;
+    let all_lines: HashSet<sha1::Digest> = commit_lines!(repo, c)
+        .map(|line| sha1::Sha1::from(line.as_bytes()).digest())
+        .collect();
+    for digest in &all_lines {
+        for &oid in idx.reverse.get(digest).into_iter().flatten() {
             *(scores.entry(oid).or_default()) += 1;
         }
     }
-    let mut scores = scores.into_iter().collect::<Vec<_>>();
-    scores.sort_by_key(|(_, x)| std::cmp::Reverse(*x));
+    let lines_in_left = all_lines.len();
+    let mut scores = scores
+        .into_iter()
+        .map(|(oid, lines_in_both)| {
+            let lines_in_right = idx.forward.get(&oid).map_or(0, |x| x.len());
+            assert!(lines_in_both <= lines_in_left);
+            assert!(lines_in_both <= lines_in_right);
+            (
+                oid,
+                Comparison {
+                    lines_in_left,
+                    lines_in_both,
+                    lines_in_right,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    scores.sort_by(|(_, x), (_, y)| x.score().partial_cmp(&y.score()).unwrap().reverse());
     Ok(scores)
 }
 
-pub fn recent_note_fingerprints(
-    repo: &Repository,
-) -> anyhow::Result<&HashMap<sha1::Digest, Vec<Oid>>> {
-    static INVERTED_INDEX: OnceCell<HashMap<sha1::Digest, Vec<Oid>>> = OnceCell::new();
-    Ok(INVERTED_INDEX.get_or_try_init(|| {
+pub struct LineIdx {
+    /// What lines does this commit contain?
+    pub forward: HashMap<Oid, HashSet<sha1::Digest>>,
+    /// In what commits does this line appear?
+    pub reverse: HashMap<sha1::Digest, HashSet<Oid>>,
+}
+
+impl LineIdx {
+    pub fn get(repo: &Repository) -> anyhow::Result<&LineIdx> {
+        static INVERTED_INDEX: OnceCell<LineIdx> = OnceCell::new();
+        INVERTED_INDEX.get_or_try_init(|| LineIdx::new(repo))
+    }
+
+    // TODO: (perf) Try using a BTreeMap<(Digest, Oid), ()>
+    // TODO: (perf) Drop very popular lines (eg. "" and "---")
+    // TODO: (perf) Persist the index to disk and update incrementally
+    fn new(repo: &Repository) -> anyhow::Result<LineIdx> {
         let time = std::time::Instant::now();
-        let mut idx: HashMap<sha1::Digest, Vec<Oid>> = HashMap::new();
+        let mut forward: HashMap<Oid, HashSet<sha1::Digest>> = HashMap::new();
+        let mut reverse: HashMap<sha1::Digest, HashSet<Oid>> = HashMap::new();
         for oid in recent_notes(repo)? {
             let commit = repo.find_commit(oid)?;
-            for line in commit_diff(repo, &commit)?
-                .format_email(1, 1, &commit, None)?
-                .as_str()
-                .unwrap()
-                .lines()
-                // Drop the OID, author, and date
-                .skip(3)
-            {
+            let mut all_lines = HashSet::new();
+            for line in commit_lines!(repo, &commit) {
                 let digest = sha1::Sha1::from(line.as_bytes()).digest();
-                idx.entry(digest).or_default().push(oid);
+                all_lines.insert(digest);
+                reverse.entry(digest).or_default().insert(oid);
             }
+            forward.insert(oid, all_lines);
         }
         tracing::info!("Created inverted index in {:?}", time.elapsed());
-        Ok::<_, anyhow::Error>(idx)
-    })?)
+        Ok(LineIdx { reverse, forward })
+    }
 }
 
 pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
