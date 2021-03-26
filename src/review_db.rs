@@ -86,10 +86,12 @@ pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
             } else {
                 let mut reviewed = false;
                 let digest = commit_diff_digest(repo, &commit)?;
-                for &(_, recent_digest) in recent_note_digests(repo)? {
-                    if recent_digest == digest {
-                        reviewed = true;
-                        break;
+                if OPTS.dedup {
+                    for &(_, recent_digest) in recent_note_digests(repo)? {
+                        if recent_digest == digest {
+                            reviewed = true;
+                            break;
+                        }
                     }
                 }
                 if reviewed {

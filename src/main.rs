@@ -23,6 +23,8 @@ pub struct Opts {
     #[structopt(long)]
     pub db: Option<std::path::PathBuf>,
     #[structopt(long)]
+    pub dedup: bool,
+    #[structopt(long)]
     pub notes_ref: Option<String>,
 }
 #[derive(StructOpt, Debug, Clone)]
