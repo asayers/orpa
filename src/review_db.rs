@@ -1,9 +1,8 @@
-use crate::OPTS;
+use crate::{get_idx, OPTS};
 use anyhow::anyhow;
 use chrono::NaiveDateTime;
 use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree};
 use itertools::Itertools;
-use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::path::Path;
@@ -58,22 +57,6 @@ pub fn recent_notes(repo: &Repository) -> anyhow::Result<Vec<Oid>> {
     Ok(ret)
 }
 
-fn recent_note_digests(repo: &Repository) -> anyhow::Result<&[(Oid, sha1::Digest)]> {
-    static RECENT_DIGESTS: OnceCell<Vec<(Oid, sha1::Digest)>> = OnceCell::new();
-    Ok(RECENT_DIGESTS
-        .get_or_try_init(|| {
-            recent_notes(repo)?
-                .into_iter()
-                .map(|oid| {
-                    let commit = repo.find_commit(oid)?;
-                    let digest = commit_diff_digest(repo, &commit)?;
-                    Ok((oid, digest))
-                })
-                .collect::<anyhow::Result<Vec<_>>>()
-        })?
-        .as_slice())
-}
-
 /// Iterate over the lines in the commit's textual representation.
 ///
 /// Covers the commit message and diff, but no other metadata.
@@ -113,11 +96,8 @@ impl Comparison {
 ///
 /// Note that this means that a commit which is a superset will get a
 /// perfect score.
-pub fn similiar_commits(
-    repo: &Repository,
-    idx: &LineIdx,
-    c: &Commit,
-) -> anyhow::Result<Vec<(Oid, Comparison)>> {
+pub fn similiar_commits(repo: &Repository, c: &Commit) -> anyhow::Result<Vec<(Oid, Comparison)>> {
+    let idx = get_idx(repo)?;
     let mut scores: HashMap<Oid, usize> = HashMap::new();
     let all_lines: HashSet<sha1::Digest> = commit_lines!(repo, c)
         .map(|line| sha1::Sha1::from(line.as_bytes()).digest())
@@ -230,8 +210,13 @@ pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
                 let mut reviewed = false;
                 let digest = commit_diff_digest(repo, &commit)?;
                 if OPTS.dedup {
-                    for &(_, recent_digest) in recent_note_digests(repo)? {
-                        if recent_digest == digest {
+                    for (other_oid, _) in similiar_commits(repo, &commit)?
+                        .into_iter()
+                        .filter(|(_, ddiff)| ddiff.score() == 1.)
+                    {
+                        let other = repo.find_commit(other_oid)?;
+                        let other_digest = commit_diff_digest(repo, &other)?;
+                        if digest == other_digest {
                             reviewed = true;
                             break;
                         }
@@ -262,7 +247,7 @@ pub fn walk_new(
     }
     for oid in walk {
         let oid = oid?;
-        let status = lookup(&repo, oid)?;
+        let status = lookup(repo, oid)?;
         match status {
             Status::New => f(oid),
             Status::Checkpoint => break,

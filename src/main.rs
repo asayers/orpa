@@ -6,7 +6,7 @@ use crate::review_db::*;
 use anyhow::anyhow;
 use git2::{Oid, Repository};
 use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use std::io::{stdin, stdout, BufRead, Write};
 use std::{fs::File, path::PathBuf, process::Command};
 use structopt::StructOpt;
@@ -97,6 +97,15 @@ pub enum Cmd {
     },
 }
 
+pub fn get_idx(repo: &Repository) -> anyhow::Result<&LineIdx> {
+    static LINE_IDX: OnceCell<LineIdx> = OnceCell::new();
+    LINE_IDX.get_or_try_init(|| {
+        let idx = LineIdx::open(&db_path(&repo))?;
+        idx.refresh(&repo)?;
+        Ok(idx)
+    })
+}
+
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let repo = Repository::open_from_env()?;
@@ -172,7 +181,7 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
             let latest_rev = db.get_revs(mr).last().unwrap()?;
             let range = format!("{}..{}", latest_rev.base, latest_rev.head);
             let mut n_unreviewed = 0;
-            review_db::walk_new(&repo, Some(&range), |_| {
+            walk_new(&repo, Some(&range), |_| {
                 n_unreviewed += 1;
             })?;
             if n_unreviewed > 0 {
@@ -216,8 +225,6 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
 }
 
 fn review(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
-    let idx = &LineIdx::open(&db_path(&repo))?;
-    idx.refresh(&repo)?;
     let mut new = vec![];
     walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
     for oid in new.into_iter().rev() {
@@ -248,7 +255,7 @@ fn review(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
                 "mark" => break Some("Reviewed".into()),
                 x if x.starts_with("mark ") => break Some(String::from(&x[5..])),
                 "tig" => run_tig(),
-                "similar" => for (oid, x) in similiar_commits(&repo, &idx, &repo.find_commit(oid)?)?.into_iter().take(5) {
+                "similar" => for (oid, x) in similiar_commits(&repo, &repo.find_commit(oid)?)?.into_iter().take(5) {
                     println!("{} (score: {})", oid, x.score());
                 }
                 "" => (), // loop
@@ -373,10 +380,8 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
 }
 
 fn similar(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
-    let idx = &LineIdx::open(&db_path(&repo))?;
-    idx.refresh(&repo)?;
     let commit = repo.revparse_single(&revspec)?.peel_to_commit()?;
-    for (oid, x) in similiar_commits(&repo, &idx, &commit)?.into_iter().take(10) {
+    for (oid, x) in similiar_commits(&repo, &commit)?.into_iter().take(10) {
         println!("{} (score: {:.02}%)", oid, x.score() * 100.);
     }
     Ok(())
@@ -389,7 +394,7 @@ fn print_rev(repo: &Repository, rev: RevInfo) -> anyhow::Result<()> {
     walk_all.push_range(&range)?;
     let n_total = walk_all.count();
     let mut n_unreviewed = 0;
-    review_db::walk_new(&repo, Some(&range), |_| {
+    walk_new(&repo, Some(&range), |_| {
         n_unreviewed += 1;
     })?;
     let unreviewed_msg = if n_unreviewed == 0 {
