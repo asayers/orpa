@@ -5,6 +5,8 @@ use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
+use std::path::Path;
 use yansi::Paint;
 
 pub fn append_note(repo: &Repository, oid: Oid, new_note: &str) -> anyhow::Result<()> {
@@ -111,14 +113,17 @@ impl Comparison {
 ///
 /// Note that this means that a commit which is a superset will get a
 /// perfect score.
-pub fn similiar_commits(repo: &Repository, c: &Commit) -> anyhow::Result<Vec<(Oid, Comparison)>> {
+pub fn similiar_commits(
+    repo: &Repository,
+    idx: &LineIdx,
+    c: &Commit,
+) -> anyhow::Result<Vec<(Oid, Comparison)>> {
     let mut scores: HashMap<Oid, usize> = HashMap::new();
-    let idx = &LineIdx::get(repo)?;
     let all_lines: HashSet<sha1::Digest> = commit_lines!(repo, c)
         .map(|line| sha1::Sha1::from(line.as_bytes()).digest())
         .collect();
     for digest in &all_lines {
-        for &oid in idx.reverse.get(digest).into_iter().flatten() {
+        for oid in idx.commits_containing(digest.into())? {
             *(scores.entry(oid).or_default()) += 1;
         }
     }
@@ -126,7 +131,7 @@ pub fn similiar_commits(repo: &Repository, c: &Commit) -> anyhow::Result<Vec<(Oi
     let mut scores = scores
         .into_iter()
         .map(|(oid, lines_in_both)| {
-            let lines_in_right = idx.forward.get(&oid).map_or(0, |x| x.len());
+            let lines_in_right = idx.lines_in(&oid).unwrap().len();
             assert!(lines_in_both <= lines_in_left);
             assert!(lines_in_both <= lines_in_right);
             (
@@ -144,37 +149,69 @@ pub fn similiar_commits(repo: &Repository, c: &Commit) -> anyhow::Result<Vec<(Oi
 }
 
 pub struct LineIdx {
-    /// What lines does this commit contain?
-    pub forward: HashMap<Oid, HashSet<sha1::Digest>>,
-    /// In what commits does this line appear?
-    pub reverse: HashMap<sha1::Digest, HashSet<Oid>>,
+    /// What lines does this commit contain? (Oid => [Line])
+    pub forward: sled::Tree,
+    /// In what commits does this line appear? (Line => [Oid])
+    pub reverse: sled::Tree,
+}
+
+/// The SHA1 of a line in a commit's textual representation.
+pub struct Line(pub [u8; 20]);
+impl From<&sha1::Digest> for Line {
+    fn from(digest: &sha1::Digest) -> Self {
+        Line(digest.bytes())
+    }
 }
 
 impl LineIdx {
-    pub fn get(repo: &Repository) -> anyhow::Result<&LineIdx> {
-        static INVERTED_INDEX: OnceCell<LineIdx> = OnceCell::new();
-        INVERTED_INDEX.get_or_try_init(|| LineIdx::new(repo))
+    pub fn commits_containing(&self, line: Line) -> anyhow::Result<Vec<Oid>> {
+        let bytes = self.reverse.get(&line.0)?;
+        let bytes = bytes.as_deref().unwrap_or(&[][..]);
+        bytes
+            .chunks(20)
+            .map(|x| Oid::from_bytes(x).map_err(|e| e.into()))
+            .collect()
     }
 
-    // TODO: (perf) Try using a BTreeMap<(Digest, Oid), ()>
-    // TODO: (perf) Drop very popular lines (eg. "" and "---")
-    // TODO: (perf) Persist the index to disk and update incrementally
-    fn new(repo: &Repository) -> anyhow::Result<LineIdx> {
-        let time = std::time::Instant::now();
-        let mut forward: HashMap<Oid, HashSet<sha1::Digest>> = HashMap::new();
-        let mut reverse: HashMap<sha1::Digest, HashSet<Oid>> = HashMap::new();
-        for oid in recent_notes(repo)? {
-            let commit = repo.find_commit(oid)?;
-            let mut all_lines = HashSet::new();
-            for line in commit_lines!(repo, &commit) {
-                let digest = sha1::Sha1::from(line.as_bytes()).digest();
-                all_lines.insert(digest);
-                reverse.entry(digest).or_default().insert(oid);
-            }
-            forward.insert(oid, all_lines);
+    pub fn lines_in(&self, oid: &Oid) -> anyhow::Result<Vec<Line>> {
+        let bytes = self.forward.get(oid.as_bytes())?;
+        let bytes = bytes.as_deref().unwrap_or(&[][..]);
+        bytes.chunks(20).map(|x| Ok(Line(x.try_into()?))).collect()
+    }
+
+    pub fn open(path: &Path) -> anyhow::Result<Self> {
+        let db = sled::open(path)?;
+        let forward = db.open_tree("forward")?;
+        let reverse = db.open_tree("reverse")?;
+        fn append(_: &[u8], existing: Option<&[u8]>, incoming: &[u8]) -> Option<Vec<u8>> {
+            let mut ret = existing.map(|x| x.to_vec()).unwrap_or_else(|| vec![]);
+            ret.extend_from_slice(incoming);
+            Some(ret)
         }
-        tracing::info!("Created inverted index in {:?}", time.elapsed());
-        Ok(LineIdx { reverse, forward })
+        reverse.set_merge_operator(append);
+        Ok(LineIdx { forward, reverse })
+    }
+
+    // TODO: (perf) Drop very popular lines (eg. "" and "---")
+    pub fn refresh(&self, repo: &Repository) -> anyhow::Result<()> {
+        let time = std::time::Instant::now();
+        for oid in recent_notes(repo)? {
+            if self.forward.get(oid.as_bytes())?.is_some() {
+                continue;
+            }
+            let commit = repo.find_commit(oid)?;
+            let all_lines = commit_lines!(repo, &commit)
+                .map(|line| sha1::Sha1::from(line.as_bytes()).digest())
+                .collect::<HashSet<_>>();
+            let mut all_lines_b = vec![];
+            for digest in &all_lines {
+                self.reverse.merge(digest.bytes(), oid)?;
+                all_lines_b.extend_from_slice(&digest.bytes());
+            }
+            self.forward.insert(oid, all_lines_b)?;
+        }
+        tracing::info!("Refreshed the index in {:?}", time.elapsed());
+        Ok(())
     }
 }
 

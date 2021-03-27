@@ -128,11 +128,10 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(Cmd::Similar { revspec }) => {
-            for (oid, x) in
-                similiar_commits(&repo, &repo.revparse_single(&revspec)?.peel_to_commit()?)?
-                    .into_iter()
-                    .take(10)
-            {
+            let idx = &LineIdx::open(&db_path(&repo))?;
+            idx.refresh(&repo)?;
+            let commit = repo.revparse_single(&revspec)?.peel_to_commit()?;
+            for (oid, x) in similiar_commits(&repo, &idx, &commit)?.into_iter().take(10) {
                 println!("{} (score: {:.02}%)", oid, x.score() * 100.);
             }
             Ok(())
@@ -225,6 +224,8 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
 }
 
 fn review(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
+    let idx = &LineIdx::open(&db_path(&repo))?;
+    idx.refresh(&repo)?;
     let mut new = vec![];
     walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
     for oid in new.into_iter().rev() {
@@ -255,7 +256,7 @@ fn review(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
                 "mark" => break Some("Reviewed".into()),
                 x if x.starts_with("mark ") => break Some(String::from(&x[5..])),
                 "tig" => run_tig(),
-                "similar" => for (oid, x) in similiar_commits(&repo, &repo.find_commit(oid)?)?.into_iter().take(5) {
+                "similar" => for (oid, x) in similiar_commits(&repo, &idx, &repo.find_commit(oid)?)?.into_iter().take(5) {
                     println!("{} (score: {})", oid, x.score());
                 }
                 "" => (), // loop
