@@ -127,15 +127,7 @@ fn main() -> anyhow::Result<()> {
             }
             Ok(())
         }
-        Some(Cmd::Similar { revspec }) => {
-            let idx = &LineIdx::open(&db_path(&repo))?;
-            idx.refresh(&repo)?;
-            let commit = repo.revparse_single(&revspec)?.peel_to_commit()?;
-            for (oid, x) in similiar_commits(&repo, &idx, &commit)?.into_iter().take(10) {
-                println!("{} (score: {:.02}%)", oid, x.score() * 100.);
-            }
-            Ok(())
-        }
+        Some(Cmd::Similar { revspec }) => similar(&repo, &revspec),
     }
 }
 
@@ -376,6 +368,16 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
             print_rev(&repo, x?)?;
         }
         println!();
+    }
+    Ok(())
+}
+
+fn similar(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
+    let idx = &LineIdx::open(&db_path(&repo))?;
+    idx.refresh(&repo)?;
+    let commit = repo.revparse_single(&revspec)?.peel_to_commit()?;
+    for (oid, x) in similiar_commits(&repo, &idx, &commit)?.into_iter().take(10) {
+        println!("{} (score: {:.02}%)", oid, x.score() * 100.);
     }
     Ok(())
 }
