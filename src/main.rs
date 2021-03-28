@@ -228,6 +228,7 @@ fn review(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
     let mut new = vec![];
     walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
     for oid in new.into_iter().rev() {
+        let similar = similiar_commits(&repo, &repo.find_commit(oid)?)?;
         let run_tig = || {
             let status = Command::new("tig")
                 .args(&["show", &oid.to_string()])
@@ -239,8 +240,20 @@ fn review(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
                 error!("Make sure 'tig' is installed and in $PATH");
             }
         };
-        run_tig();
         show_commit_with_diffstat(&repo, oid)?;
+        if similar.first().map_or(false, |(_, x)| x.score() > 0.5) {
+            println!();
+            println!("Found the following similar commits which you've already reviewed:");
+        }
+        for (oid, x) in similar.iter().filter(|(_, x)| x.score() > 0.5).take(5) {
+            let c = repo.find_commit(*oid)?;
+            println!(
+                "  {} {} (similarity: {:.02}%)",
+                Paint::yellow(c.as_object().short_id()?.as_str().unwrap_or("")),
+                c.summary().unwrap_or(""),
+                x.score()
+            );
+        }
         println!();
         let new_note = loop {
             print!("> ");
@@ -255,9 +268,6 @@ fn review(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
                 "mark" => break Some("Reviewed".into()),
                 x if x.starts_with("mark ") => break Some(String::from(&x[5..])),
                 "tig" => run_tig(),
-                "similar" => for (oid, x) in similiar_commits(&repo, &repo.find_commit(oid)?)?.into_iter().take(5) {
-                    println!("{} (score: {})", oid, x.score());
-                }
                 "" => (), // loop
                 x => println!("Didn't understand command: {}", x),
             }
