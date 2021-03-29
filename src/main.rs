@@ -251,7 +251,7 @@ fn review(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
                 "  {} {} (similarity: {:.02}%)",
                 Paint::yellow(c.as_object().short_id()?.as_str().unwrap_or("")),
                 c.summary().unwrap_or(""),
-                x.score()
+                x.score() * 100.,
             );
         }
         println!();
@@ -392,7 +392,7 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
 fn similar(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
     let commit = repo.revparse_single(&revspec)?.peel_to_commit()?;
     for (oid, x) in similiar_commits(&repo, &commit)?.into_iter().take(10) {
-        println!("{} (score: {:.02}%)", oid, x.score() * 100.);
+        println!("{} (similarity: {:.02}%)", oid, x.score() * 100.);
     }
     Ok(())
 }
