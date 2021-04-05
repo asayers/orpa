@@ -62,10 +62,7 @@ pub fn recent_notes(repo: &Repository) -> anyhow::Result<Vec<Oid>> {
 /// Covers the commit message and diff, but no other metadata.
 macro_rules! commit_lines {
     ($repo:expr, $commit: expr) => {
-        commit_diff($repo, $commit)?
-            .format_email(1, 1, $commit, None)?
-            .as_str()
-            .unwrap()
+        String::from_utf8_lossy(&commit_diff($repo, $commit)?.format_email(1, 1, $commit, None)?)
             .lines()
             // Drop the OID, author, and date
             .skip(3)
