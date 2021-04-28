@@ -131,9 +131,9 @@ and put a section like this in your local git repository's .git/config file:
 
 ```ini
 [gitlab]
-    url = "gitlab.example.com"
+    url = "gitlab.com"
     privateToken = "1234567890abcdefgijk"
-    projectId = "1"
+    projectId = "8765"
     username = "asayers"
 ```
 
