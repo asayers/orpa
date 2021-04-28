@@ -205,8 +205,8 @@ pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
                 Ok(Status::Merge)
             } else {
                 let mut reviewed = false;
-                let digest = commit_diff_digest(repo, &commit)?;
                 if OPTS.dedup {
+                    let digest = commit_diff_digest(repo, &commit)?;
                     for (other_oid, _) in similiar_commits(repo, &commit)?
                         .into_iter()
                         .filter(|(_, ddiff)| ddiff.score() == 1.)
