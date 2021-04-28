@@ -21,19 +21,21 @@ pub fn append_note(repo: &Repository, oid: Oid, new_note: &str) -> anyhow::Resul
     notes.insert(new_note);
     let combined_note = notes.iter().join("\n");
     let notes_ref = notes_ref();
-    let notes_ref = notes_ref.as_ref().map(|x| x.as_str());
     repo.note(&sig, &sig, notes_ref, oid, &combined_note, true)?;
     println!("{}: {}", oid, notes.iter().join(", "));
     Ok(())
 }
 
-fn notes_ref() -> Option<String> {
-    OPTS.notes_ref.as_ref().map(|x| format!("refs/notes/{}", x))
+fn notes_ref() -> Option<&'static str> {
+    static NOTES_REF: OnceCell<Option<String>> = OnceCell::new();
+    NOTES_REF
+        .get_or_init(|| OPTS.notes_ref.as_ref().map(|x| format!("refs/notes/{}", x)))
+        .as_ref()
+        .map(|x| x.as_str())
 }
 
 pub fn get_note(repo: &Repository, oid: Oid) -> anyhow::Result<Option<String>> {
     let notes_ref = notes_ref();
-    let notes_ref = notes_ref.as_ref().map(|x| x.as_str());
     match repo.find_note(notes_ref, oid) {
         Ok(note) => Ok(note.message().map(|x| x.to_owned())),
         Err(e) if e.code() == ErrorCode::NotFound => Ok(None),
@@ -43,10 +45,7 @@ pub fn get_note(repo: &Repository, oid: Oid) -> anyhow::Result<Option<String>> {
 
 /// Actually returns all notes...
 pub fn recent_notes(repo: &Repository) -> anyhow::Result<Vec<Oid>> {
-    let notes_ref = notes_ref();
-    let notes_ref = notes_ref
-        .as_ref()
-        .map_or("refs/notes/commits", |x| x.as_str());
+    let notes_ref = notes_ref().unwrap_or("refs/notes/commits");
     let tree = repo.find_reference(notes_ref)?.peel_to_commit()?.tree()?;
     let mut ret = Vec::with_capacity(tree.len());
     for x in tree.iter() {
