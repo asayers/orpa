@@ -158,7 +158,7 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
         };
         if n_new > 10 {
             println!(
-                "...and {} more (use \"orpa list{}\" to see them)",
+                "  ...and {} more (use \"orpa list{}\" to see them)",
                 n_new - 10,
                 args,
             );
@@ -324,7 +324,7 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
     let db = mr_db::Db::open(&db_path)?;
 
     info!("Connecting to gitlab at {}", &gitlab_host);
-    let gl = Gitlab::new_insecure(&gitlab_host, &gitlab_token).unwrap();
+    let gl = Gitlab::new_insecure(&gitlab_host, &gitlab_token)?;
 
     println!(
         "Fetching open MRs for project {} from {}...",
