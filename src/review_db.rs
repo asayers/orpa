@@ -6,7 +6,9 @@ use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::io::Write;
 use std::path::Path;
+use tracing::*;
 use yansi::Paint;
 
 pub fn append_note(repo: &Repository, oid: Oid, new_note: &str) -> anyhow::Result<()> {
@@ -202,10 +204,28 @@ fn our_email(repo: &Repository) -> anyhow::Result<&'static [u8]> {
     .map(|x| x.as_slice())
 }
 
+fn reviewed_commits(repo: &Repository) -> anyhow::Result<&'static HashMap<Oid, bool>> {
+    static REVIEWS: OnceCell<HashMap<Oid, bool>> = OnceCell::new();
+    REVIEWS.get_or_try_init(|| {
+        let mut wtr = repo.blob_writer(None)?;
+        wtr.write_all(b"checkpoint")?;
+        let checkpoint_oid = wtr.commit()?;
+        info!("Checkpoint OID is {}", checkpoint_oid);
+
+        let mut reviews = HashMap::new();
+        for x in repo.notes(notes_ref())? {
+            let (note_oid, commit_oid) = x?;
+            reviews.insert(commit_oid, note_oid == checkpoint_oid);
+        }
+        info!("Scanned {} reviews", reviews.len());
+        Ok(reviews)
+    })
+}
+
 pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
-    match get_note(repo, oid)? {
-        Some(note) if note.lines().any(|x| x == "checkpoint") => Ok(Status::Checkpoint),
-        Some(_) => Ok(Status::Reviewed),
+    match reviewed_commits(repo)?.get(&oid) {
+        Some(true) => Ok(Status::Checkpoint),
+        Some(false) => Ok(Status::Reviewed),
         None => {
             let commit = repo.find_commit(oid)?;
             if commit.author().email_bytes() == our_email(repo)? {
