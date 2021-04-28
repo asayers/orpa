@@ -5,7 +5,7 @@ use crate::mr_db::RevInfo;
 use crate::review_db::*;
 use anyhow::anyhow;
 use git2::{Oid, Repository};
-use gitlab::{Gitlab, MergeRequest, MergeRequestStateFilter, ProjectId};
+use gitlab::{Gitlab, MergeRequest, ProjectId};
 use once_cell::sync::{Lazy, OnceCell};
 use std::io::{stdin, stdout, BufRead, Write};
 use std::{fs::File, path::PathBuf, process::Command};
@@ -317,24 +317,33 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
     let config = repo.config()?;
     let gitlab_host = config.get_string("gitlab.url")?;
     let gitlab_token = config.get_string("gitlab.privateToken")?;
-    let project_id = ProjectId::new(config.get_i64("gitlab.projectId")? as u64);
+    let project_id = config.get_i64("gitlab.projectId")? as u64;
 
     info!("Opening the database");
     let db_path = db_path(repo);
     let db = mr_db::Db::open(&db_path)?;
 
     info!("Connecting to gitlab at {}", &gitlab_host);
-    let gl = Gitlab::new_insecure(&gitlab_host, &gitlab_token)?;
+    let gl = Gitlab::new(&gitlab_host, &gitlab_token)?;
 
     println!(
         "Fetching open MRs for project {} from {}...",
         project_id, gitlab_host
     );
-    let mrs = gl.merge_requests_with_state(project_id, MergeRequestStateFilter::Opened)?;
+    let mrs = {
+        use gitlab::api::{projects::merge_requests::*, *};
+        let query = MergeRequestsBuilder::default()
+            .project(project_id)
+            .state(MergeRequestState::Opened)
+            .build()
+            .map_err(|e| anyhow!(e))?;
+        paged(query, Pagination::All).query(&gl)?
+    };
     let mr_cache_path = db_path.join("mr_cache");
     serde_json::to_writer(File::create(mr_cache_path)?, &mrs)?;
 
     info!("Updating the DB with new revisions");
+    let project_id = ProjectId::new(project_id);
     for mr in &mrs {
         if let Some(info) = db.insert_if_newer(&repo, &gl, project_id, mr)? {
             println!("Updated !{} to v{}", mr.iid.value(), info.rev + 1);
