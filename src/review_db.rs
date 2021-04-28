@@ -193,11 +193,12 @@ impl LineIdx {
     }
 }
 
-fn our_name(repo: &Repository) -> anyhow::Result<&'static [u8]> {
+// TODO: Include addresses from the mailmap
+fn our_email(repo: &Repository) -> anyhow::Result<&'static [u8]> {
     static SIG: OnceCell<Vec<u8>> = OnceCell::new();
     SIG.get_or_try_init(|| {
         let sig = repo.signature()?;
-        Ok(sig.name_bytes().to_vec())
+        Ok(sig.email_bytes().to_vec())
     })
     .map(|x| x.as_slice())
 }
@@ -208,7 +209,7 @@ pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
         Some(_) => Ok(Status::Reviewed),
         None => {
             let commit = repo.find_commit(oid)?;
-            if commit.author().name_bytes() == our_name(repo)? {
+            if commit.author().email_bytes() == our_email(repo)? {
                 Ok(Status::Ours)
             } else if commit.parent_count() > 1 {
                 Ok(Status::Merge)
