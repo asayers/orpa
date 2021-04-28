@@ -3,6 +3,7 @@ use anyhow::anyhow;
 use chrono::NaiveDateTime;
 use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree};
 use itertools::Itertools;
+use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::path::Path;
@@ -192,14 +193,22 @@ impl LineIdx {
     }
 }
 
+fn our_name(repo: &Repository) -> anyhow::Result<&'static [u8]> {
+    static SIG: OnceCell<Vec<u8>> = OnceCell::new();
+    SIG.get_or_try_init(|| {
+        let sig = repo.signature()?;
+        Ok(sig.name_bytes().to_vec())
+    })
+    .map(|x| x.as_slice())
+}
+
 pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
     match get_note(repo, oid)? {
         Some(note) if note.lines().any(|x| x == "checkpoint") => Ok(Status::Checkpoint),
         Some(_) => Ok(Status::Reviewed),
         None => {
             let commit = repo.find_commit(oid)?;
-            let sig = repo.signature()?;
-            if commit.author().name_bytes() == sig.name_bytes() {
+            if commit.author().name_bytes() == our_name(repo)? {
                 Ok(Status::Ours)
             } else if commit.parent_count() > 1 {
                 Ok(Status::Merge)
