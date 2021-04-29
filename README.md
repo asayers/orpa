@@ -1,15 +1,13 @@
 <h1 align="center">Tracking read/unread commits</h1>
 
-If you work on a small to medium sized project, I believe you should probably
-be reading every commit the gets merged to master.  I don't mean you actually
-have to review the diff - just read the description and glance at the diffstat.
-It helps you maintain some sense of who's doing what, and what's going on.
+**tl;dr**: Do you try to review your colleagues' commits, but sometimes they
+slip past you?  Are you tired of re-reviewing commits you've already looked at?
+Keep track of the ones you've reviewed and you'll see them exactly once!
 
-(If, on the other hand, you work at a giant company with a monorepo, then
-this document is not going to be very applicable to you.)
+## A tale of many reviews
 
 Once upon a time, I would pull master and check to see what had come down
-the pipe like so:
+the pipe, like this:
 
 ```
 $ git pull
@@ -22,8 +20,8 @@ can lose track of which ones you've looked at.  I wanted a way to track the
 
 ## Enter git-notes
 
-Well, git gives you a way to leave notes on commits.  It's called [`git
-notes`].  You use it like this:
+In fact, git gives you a way to leave notes for yourself attached to commits.
+It's called... [`git notes`].  You use it like this:
 
 ```
 $ git notes add b76598d -m 'Reviewed-by: Alex Sayers <alex@asayers.com>'
@@ -47,14 +45,20 @@ Notes:
 
 Tips:
 
-* You can edit notes interactively like so: `git notes edit <commit>`.
-* You can namespace your notes with `--ref` if you want to keep them organised.
-* I like to make my notes look like a ["trailer"], because programs like
-  tig will recognise them and highlight them nicely.
+* If you make a typo, you can edit a note interactively like so:
+  `git notes edit <commit>`
+* You can namespace your notes with `--ref` if you want to keep them
+  organised somehow.
+* I like to make my notes look like a ["trailer"].  If you do this,
+  programs like tig will recognise them and highlight them nicely.
 
-The way I think of "reviewed-by" is this: it's like the read/unread status
-on your emails.  It doesn't imply approval, disapproval, or any judgement
-whatsoever.  It just means that I've looked at the commit.
+## Making a system
+
+The way I think of my "reviewed-by" notes is this: it's like the read/unread
+status on my emails.  It doesn't imply approval, disapproval, or any judgement
+whatsoever.  It just means that I've looked at the commit.  If I've actually
+build a commit and tried it out, I write "tested-by" instead.  And that's about
+as far as my system goes; you're free to make yours as complicated as you like.
 
 And remember: these comments aren't indended to be seen by anyone else;
 they're just for my own personal use.  If you want to give authors feedback
@@ -64,7 +68,40 @@ mailing list/whatever.  This is all about _local, private_ review tracking.
 [`git notes`]: https://git-scm.com/docs/git-notes
 ["trailer"]: https://git-scm.com/docs/git-interpret-trailers
 
-## Enter orpa
+## Reviewing merge requests
+
+Reviewing commits once they're been merged is good, but I'd also like to
+review incoming changes before they land.  Fortunately, `git notes` allows
+you to attach comments to _any_ commit in your repo, whether it's merged to
+a local branch or just part of a remote branch.  That means we can use our
+system to keep track of which MRs we've looked at.
+
+So, Joe has an MR where he wants to merge 563e5fb..aadb1f9 into master.
+I look through those commits, marking them as reviewed.  I send Joe some
+feedback.  He updates the MR, and now it shows the range 7be3424..de31ea2.
+Once again git has us covered with `git range-diff`:
+
+```
+$ git range-diff 563e5fb..aadb1f9 7be3424..de31ea2
+1:  9fbc3f82 = 1:  ce0ad59e Make the notes ref configurable
+2:  aadb1f9e = 2:  30bb419c Use Lazy for CLI opts
+-:  -------- > 3:  de31ea2c Rename --hidden to --all
+```
+
+It looks like Joe just rebased and added a commit.  So I can just mark
+the first two as seen without thinking, and then take a closer look at the
+third one.
+
+## Hitting a snag
+
+Joe has merged his MR to master; however, he did a quick rebase first.
+This means that the commits which landed in master don't have notes attached
+to them.  If I'm properly awake then I'll notice that the "unreviewed" commits
+in master are similar to the ones I reviewed in the MR, use `git range-diff`
+to confirm, and then mark them as reviewed.  But this is too much thinking
+for my liking!
+
+## Orpa
 
 `orpa` is a tool for streamlining this workflow.  It shows you the commits
 which don't yet have any notes attached.
@@ -98,17 +135,7 @@ Date:   Fri Feb 12 19:09:27 2021 +0900
 da05da11960b59249a286999612c1fcba90dbd19: Reviewed-by: Alex Sayers <alex@asayers.com>
 ```
 
-## Reviewing merge requests
-
-Reviewing commits once they're been merged is good, but perhaps you'd like
-to review the incoming changes.  `git notes` allows you to attach comments
-to _any_ commit in your repo, whether it's merged to a local branch or just
-part of a remote branch.  That means we can use our system to keep track of
-which MRs we've looked at.
-
-Suppose there's an MR you want to review; the head of the MR branch is
-`aadb1f9`, and the merge-base with the target branch is `563e5fb`.  We can
-pass this range to `orpa` like so:
+Both commands will accept a range, so you can use them with merge requests too:
 
 ```
 $ orpa status 563e5fb..aadb1f9
@@ -120,7 +147,9 @@ $ orpa status 563e5fb..aadb1f9
 Review them using "orpa review 563e5fb..aadb1f9"
 ```
 
-## Configuring `orpa fetch`
+## Advanced functionality
+
+### Configuring `orpa fetch`
 
 Orpa can load the open MRs from your MR tracker and display the unreviewed
 commits in the same way.  Currently it only supports gitlab, but support
@@ -137,7 +166,7 @@ and put a section like this in your local git repository's .git/config file:
     username = "asayers"
 ```
 
-## Listing merge requests
+### Listing merge requests
 
 Let's grab the latest MRs from gitlab with `orpa fetch`:
 
@@ -171,37 +200,3 @@ Date:   2019-12-10 08:42:20.768 UTC
 ```
 
 And there's the range we need to pass to `orpa review`!
-
-## Merge request versions
-
-So we take a look at the commits in merge request !84, and perhaps we send
-some feedback to Joe Smith.  He pushes a new version, and now after we
-`orpa fetch` we see this:
-
-```
-$ orpa mr 84
-merge_request !84
-Author: Joe Smith (@jsmith)
-Date:   2019-12-10 08:42:20.768 UTC
-
-    Add --notes-ref CLI argument
-
-    v1 563e5fb..aadb1f9 (2/2 reviewed)
-    v2 7be3424..de31ea2 (0/3 reviewed)
-```
-
-All the commit hashes in v2 are completely different to v1, so orpa thinks
-that v2 has zero reviewed commits.  We could look through the v2 commits and
-try to spot what's changed, but that's boring and error-prone.  So instead
-let's use `git range-diff`:
-
-```
-$ git range-diff 563e5fb..aadb1f9 7be3424..de31ea2
-1:  9fbc3f82 = 1:  ce0ad59e Make the notes ref configurable
-2:  aadb1f9e = 2:  30bb419c Use Lazy for CLI opts
--:  -------- > 3:  de31ea2c Rename --hidden to --all
-```
-
-It turns out Joe just rebased and added a commit.  Now when we do `orpa
-review 7be3424..de31ea2` we can mark the first two as seen without thinking,
-and then take a closer look at the third one.
