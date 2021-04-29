@@ -49,16 +49,20 @@ Tips:
   `git notes edit <commit>`
 * You can namespace your notes with `--ref` if you want to keep them
   organised somehow.
-* I like to make my notes look like a ["trailer"].  If you do this,
-  programs like tig will recognise them and highlight them nicely.
+* I like to make my notes look like a ["trailer"].  You don't have to do this,
+  but if you do some programs (like tig) will recognise them and highlight
+  them nicely.
 
 ## Making a system
 
 The way I think of my "reviewed-by" notes is this: it's like the read/unread
 status on my emails.  It doesn't imply approval, disapproval, or any judgement
-whatsoever.  It just means that I've looked at the commit.  If I've actually
-build a commit and tried it out, I write "tested-by" instead.  And that's about
-as far as my system goes; you're free to make yours as complicated as you like.
+whatsoever.  It just means that I've looked at the commit.
+
+If I've actually build a commit and tried it out, I write "tested-by" instead.
+
+...and that's about as far as my system goes!  Of course, you're free to
+make yours as complicated as you like.
 
 And remember: these comments aren't indended to be seen by anyone else;
 they're just for my own personal use.  If you want to give authors feedback
@@ -78,8 +82,15 @@ system to keep track of which MRs we've looked at.
 
 So, Joe has an MR where he wants to merge 563e5fb..aadb1f9 into master.
 I look through those commits, marking them as reviewed.  I send Joe some
-feedback.  He updates the MR, and now it shows the range 7be3424..de31ea2.
-Once again git has us covered with `git range-diff`:
+feedback.
+
+## Re-reviewing merge requests
+
+Joe has updated his MR, and now it shows the range 7be3424..de31ea2.  I don't
+want to look over these commits again - they're very similar to the ones
+I've already reviewed.
+
+Once again, git has us covered; this time it's with `git range-diff`:
 
 ```
 $ git range-diff 563e5fb..aadb1f9 7be3424..de31ea2
@@ -92,7 +103,7 @@ It looks like Joe just rebased and added a commit.  So I can just mark
 the first two as seen without thinking, and then take a closer look at the
 third one.
 
-## Hitting a snag
+## Merged merge requests
 
 Joe has merged his MR to master; however, he did a quick rebase first.
 This means that the commits which landed in master don't have notes attached
