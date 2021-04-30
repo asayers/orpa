@@ -24,7 +24,7 @@ In fact, git gives you a way to leave notes for yourself attached to commits.
 It's called... [`git notes`].  You use it like this:
 
 ```
-$ git notes add b76598d -m 'Reviewed-by: Alex Sayers <alex@asayers.com>'
+$ git notes add b76598d -m 'Reviewed'
 ```
 
 So, I started marking the commits I'd looked at by attaching a note to them.
@@ -40,7 +40,7 @@ Date:   Fri Jan 8 08:45:16 2021 +0900
     Switch from gcc-9 to gcc-10 on macOS
 
 Notes:
-    Reviewed-by: Alex Sayers <alex@asayers.com>
+    Reviewed
 ```
 
 Tips:
@@ -49,17 +49,21 @@ Tips:
   `git notes edit <commit>`
 * You can namespace your notes with `--ref` if you want to keep them
   organised somehow.
-* I like to make my notes look like a ["trailer"].  You don't have to do this,
-  but if you do some programs (like tig) will recognise them and highlight
-  them nicely.
+* You can set up a keybind in tig like so:
+  ```
+  [tig "bind"] generic = T !git notes add %(commit) -m 'Reviewed'
+  ```
+  This makes the whole review process really smooth.
+* If you make your notes look like a ["trailer"], some programs (like tig)
+  highlight them nicely.
 
 ## Making a system
 
-The way I think of my "reviewed-by" notes is this: it's like the read/unread
+The way I think of my "reviewed" notes is this: it's like the read/unread
 status on my emails.  It doesn't imply approval, disapproval, or any judgement
 whatsoever.  It just means that I've looked at the commit.
 
-If I've actually build a commit and tried it out, I write "tested-by" instead.
+If I've actually built a commit and tried it out, I write "tested" instead.
 
 ...and that's about as far as my system goes!  Of course, you're free to
 make yours as complicated as you like.
@@ -143,7 +147,7 @@ Date:   Fri Feb 12 19:09:27 2021 +0900
  1 file changed, 29 insertions(+), 4 deletions(-)
 
 > mark
-da05da11960b59249a286999612c1fcba90dbd19: Reviewed-by: Alex Sayers <alex@asayers.com>
+da05da11960b59249a286999612c1fcba90dbd19: Reviewed
 ```
 
 Both commands will accept a range, so you can use them with merge requests too:
