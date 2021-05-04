@@ -375,17 +375,17 @@ fn cached_mrs(repo: &Repository) -> anyhow::Result<Vec<MergeRequest>> {
 }
 
 fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
-    let target: u64 = target.trim_matches(|c: char| !c.is_numeric()).parse()?;
+    let target = target.trim_matches(|c: char| !c.is_numeric());
+    let path = db_path(repo).join("merge_requests").join(target);
+    let mr: MergeRequest = serde_json::from_reader(File::open(path)?)?;
+
+    let db = mr_db::Db::open(&db_path(repo))?;
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
-    let db = mr_db::Db::open(&db_path(repo))?;
-    let mrs = cached_mrs(repo)?;
-    if let Some(mr) = mrs.iter().find(|mr| mr.iid.value() == target) {
-        print_mr(&me, &mr);
-        println!();
-        for x in db.get_revs(mr) {
-            print_rev(&repo, x?)?;
-        }
+    print_mr(&me, &mr);
+    println!();
+    for x in db.get_revs(&mr) {
+        print_rev(&repo, x?)?;
     }
     Ok(())
 }
