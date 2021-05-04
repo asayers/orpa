@@ -169,7 +169,8 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
         }
     }
 
-    if let Ok((mrs, db)) = cached_mrs(repo) {
+    let db = mr_db::Db::open(&db_path(repo))?;
+    if let Ok(mrs) = cached_mrs(repo) {
         let config = repo.config()?;
         let me = config.get_string("gitlab.username")?;
 
@@ -330,7 +331,7 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
         "Fetching open MRs for project {} from {}...",
         project_id, gitlab_host
     );
-    let mrs = {
+    let mrs: Vec<MergeRequest> = {
         use gitlab::api::{projects::merge_requests::*, *};
         let query = MergeRequestsBuilder::default()
             .project(project_id)
@@ -339,8 +340,14 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
             .map_err(|e| anyhow!(e))?;
         paged(query, Pagination::All).query(&gl)?
     };
-    let mr_cache_path = db_path.join("mr_cache");
-    serde_json::to_writer(File::create(mr_cache_path)?, &mrs)?;
+
+    info!("Caching the MR info");
+    let mr_dir = db_path.join("merge_requests");
+    std::fs::create_dir_all(&mr_dir)?;
+    for mr in &mrs {
+        let path = mr_dir.join(mr.iid.to_string());
+        serde_json::to_writer(File::create(path)?, &mr)?;
+    }
 
     info!("Updating the DB with new revisions");
     let project_id = ProjectId::new(project_id);
@@ -357,19 +364,22 @@ fn db_path(repo: &Repository) -> PathBuf {
     OPTS.db.clone().unwrap_or_else(|| repo.path().join("orpa"))
 }
 
-fn cached_mrs(repo: &Repository) -> anyhow::Result<(Vec<MergeRequest>, mr_db::Db)> {
-    let db_path = db_path(repo);
-    let db = mr_db::Db::open(&db_path)?;
-    let mr_cache_path = db_path.join("mr_cache");
-    let mrs: Vec<_> = serde_json::from_reader(File::open(mr_cache_path)?)?;
-    Ok((mrs, db))
+fn cached_mrs(repo: &Repository) -> anyhow::Result<Vec<MergeRequest>> {
+    let mr_dir = db_path(repo).join("merge_requests");
+    let mut mrs = vec![];
+    for entry in std::fs::read_dir(mr_dir)? {
+        let mr: MergeRequest = serde_json::from_reader(File::open(entry?.path())?)?;
+        mrs.push(mr);
+    }
+    Ok(mrs)
 }
 
 fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
     let target: u64 = target.trim_matches(|c: char| !c.is_numeric()).parse()?;
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
-    let (mrs, db) = cached_mrs(repo)?;
+    let db = mr_db::Db::open(&db_path(repo))?;
+    let mrs = cached_mrs(repo)?;
     if let Some(mr) = mrs.iter().find(|mr| mr.iid.value() == target) {
         print_mr(&me, &mr);
         println!();
@@ -383,7 +393,8 @@ fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
 fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
-    let (mrs, db) = cached_mrs(repo)?;
+    let db = mr_db::Db::open(&db_path(repo))?;
+    let mrs = cached_mrs(repo)?;
     for mr in mrs
         .iter()
         .filter(|mr| include_all || (!mr.work_in_progress && mr.author.username != me))
