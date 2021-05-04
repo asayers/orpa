@@ -5,7 +5,7 @@ use crate::mr_db::RevInfo;
 use crate::review_db::*;
 use anyhow::anyhow;
 use git2::{Oid, Repository};
-use gitlab::{Gitlab, MergeRequest, ProjectId};
+use gitlab::{Gitlab, MergeRequest, MergeRequestState, ProjectId};
 use once_cell::sync::{Lazy, OnceCell};
 use std::io::{stdin, stdout, BufRead, Write};
 use std::{fs::File, path::PathBuf, process::Command};
@@ -448,12 +448,25 @@ fn print_rev(repo: &Repository, rev: RevInfo) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn fmt_state(x: MergeRequestState) -> &'static str {
+    match x {
+        MergeRequestState::Opened => "open",
+        MergeRequestState::Closed => "closed",
+        MergeRequestState::Reopened => "open",
+        MergeRequestState::Merged => "merged",
+        MergeRequestState::Locked => "locked",
+    }
+}
+
 fn print_mr(me: &str, mr: &MergeRequest) {
     println!(
-        "{}{}",
+        "{}{} ({} -> {})",
         Paint::yellow("merge_request !"),
-        Paint::yellow(mr.iid.value())
+        Paint::yellow(mr.iid.value()),
+        mr.source_branch,
+        mr.target_branch,
     );
+    println!("Status: {}", fmt_state(mr.state));
     println!("Author: {} (@{})", &mr.author.name, &mr.author.username);
     println!("Date:   {}", &mr.updated_at);
     println!();
