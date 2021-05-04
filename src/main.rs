@@ -5,8 +5,9 @@ use crate::mr_db::RevInfo;
 use crate::review_db::*;
 use anyhow::anyhow;
 use git2::{Oid, Repository};
-use gitlab::{Gitlab, MergeRequest, MergeRequestState, ProjectId};
+use gitlab::{Gitlab, MergeRequest, MergeRequestInternalId, MergeRequestState, ProjectId};
 use once_cell::sync::{Lazy, OnceCell};
+use std::collections::HashSet;
 use std::io::{stdin, stdout, BufRead, Write};
 use std::{fs::File, path::PathBuf, process::Command};
 use structopt::StructOpt;
@@ -350,10 +351,36 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
     }
 
     info!("Updating the DB with new revisions");
-    let project_id = ProjectId::new(project_id);
     for mr in &mrs {
-        if let Some(info) = db.insert_if_newer(&repo, &gl, project_id, mr)? {
+        if let Some(info) = db.insert_if_newer(&repo, &gl, ProjectId::new(project_id), mr)? {
             println!("Updated !{} to v{}", mr.iid.value(), info.rev + 1);
+        }
+    }
+
+    info!("Checking in on MRs we didn't get an update for");
+    let mrs: HashSet<MergeRequestInternalId> = mrs.into_iter().map(|mr| mr.iid).collect();
+    for entry in std::fs::read_dir(mr_dir)? {
+        let entry = entry?;
+        let id = MergeRequestInternalId::new(entry.file_name().into_string().unwrap().parse()?);
+        if !mrs.contains(&id) {
+            let mr: MergeRequest = serde_json::from_reader(File::open(entry.path())?)?;
+            if mr.state == MergeRequestState::Opened {
+                info!("What has happened to !{}..?", mr.iid.value());
+                let new_info: MergeRequest = {
+                    use gitlab::api::{projects::merge_requests::*, *};
+                    let query = MergeRequestBuilder::default()
+                        .project(project_id)
+                        .merge_request(mr.id.value())
+                        .build()
+                        .map_err(|e| anyhow!(e))?;
+                    query.query(&gl)?
+                };
+                println!(
+                    "Status of !{} changed to {}",
+                    mr.iid,
+                    fmt_state(new_info.state)
+                );
+            }
         }
     }
 
