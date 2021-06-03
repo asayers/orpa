@@ -49,13 +49,20 @@ Tips:
   `git notes edit <commit>`
 * You can namespace your notes with `--ref` if you want to keep them
   organised somehow.
-* You can set up a keybind in tig like so:
-  ```
-  [tig "bind"] generic = T !git notes add %(commit) -m 'Reviewed'
-  ```
-  This makes the whole review process really smooth.
 * If you make your notes look like a ["trailer"], some programs (like tig)
   highlight them nicely.
+
+And for my #1 tip: If you use tig you can set up a keybind by putting this
+in your gitconfig:
+
+  ```
+  [tig "bind"]
+      generic = T >git notes add %(commit) -m 'Reviewed'
+  ```
+
+Now, hitting 'T' will mark the highlighted commit as reviewed.  This makes
+the whole review process really smooth.  (This keybind is even suggested
+specifically in the tig manual.)
 
 ## Making a system
 
