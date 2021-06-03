@@ -34,11 +34,6 @@ pub enum Cmd {
     Status {
         range: Option<String>,
     },
-    /// Interactively review waiting commits
-    #[structopt(alias = "r")]
-    Review {
-        range: Option<String>,
-    },
     /// Inspect the oldest unreviewed commit
     Next {
         range: Option<String>,
@@ -113,7 +108,6 @@ fn main() -> anyhow::Result<()> {
     match OPTS.cmd.clone() {
         None => summary(&repo, None),
         Some(Cmd::Status { range }) => summary(&repo, range),
-        Some(Cmd::Review { range }) => review(&repo, range),
         Some(Cmd::Next { range }) => next(&repo, range),
         Some(Cmd::List { range }) => list(&repo, range),
         Some(Cmd::Show { revspec }) => show(&repo, &revspec),
@@ -164,7 +158,6 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
                 args,
             );
         }
-        println!("\nReview them using \"orpa review{}\"", args);
         if n_new > 20 {
             println!("\nHint: That's a lot of unreviewed commits! You can skip old\nones by setting a checkpoint:    orpa checkpoint <oid>");
         }
@@ -223,62 +216,6 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
             println!("\nUse \"orpa mr <id>\" to see the full MR information");
         }
     }
-    Ok(())
-}
-
-fn review(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
-    let mut new = vec![];
-    walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
-    for oid in new.into_iter().rev() {
-        let similar = similiar_commits(&repo, &repo.find_commit(oid)?)?;
-        let run_tig = || {
-            let status = Command::new("tig")
-                .args(&["show", &oid.to_string()])
-                .status();
-            if let Err(e) = status {
-                // This indicates that tig is not installed, not that the exit
-                // code was non-zero.
-                error!("{}", e);
-                error!("Make sure 'tig' is installed and in $PATH");
-            }
-        };
-        show_commit_with_diffstat(&repo, oid)?;
-        if similar.first().map_or(false, |(_, x)| x.score() > 0.5) {
-            println!();
-            println!("Found the following similar commits which you've already reviewed:");
-        }
-        for (oid, x) in similar.iter().filter(|(_, x)| x.score() > 0.5).take(5) {
-            let c = repo.find_commit(*oid)?;
-            println!(
-                "  {} {} (similarity: {:.02}%)",
-                Paint::yellow(c.as_object().short_id()?.as_str().unwrap_or("")),
-                c.summary().unwrap_or(""),
-                x.score() * 100.,
-            );
-        }
-        println!();
-        let new_note = loop {
-            print!("> ");
-            stdout().flush()?;
-            let mut l = String::new();
-            stdin().lock().read_line(&mut l)?;
-            match l.trim() {
-                _ if l.is_empty() => return Ok(()), // ctrl-D
-                "q" | "quit" => return Ok(()),
-                "h" | "help" | "?" => println!("mark      leave a note\nskip      review again next time\ntig       open in tig\nquit      end review session"),
-                "next"|"skip" => break None,
-                "mark" => break Some("Reviewed".into()),
-                x if x.starts_with("mark ") => break Some(String::from(&x[5..])),
-                "tig" => run_tig(),
-                "" => (), // loop
-                x => println!("Didn't understand command: {}", x),
-            }
-        };
-        if let Some(note) = new_note.as_ref() {
-            add_note(repo, oid, &note)?;
-        }
-    }
-    println!("Everything looks good!");
     Ok(())
 }
 
