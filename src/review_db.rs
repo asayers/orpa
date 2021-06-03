@@ -48,7 +48,11 @@ pub fn get_note(repo: &Repository, oid: Oid) -> anyhow::Result<Option<String>> {
 /// Actually returns all notes...
 pub fn recent_notes(repo: &Repository) -> anyhow::Result<Vec<Oid>> {
     let notes_ref = notes_ref().unwrap_or("refs/notes/commits");
-    let tree = repo.find_reference(notes_ref)?.peel_to_commit()?.tree()?;
+    let notes = match repo.find_reference(notes_ref) {
+        Ok(x) => x,
+        Err(_) => return Ok(vec![]),
+    };
+    let tree = notes.peel_to_commit()?.tree()?;
     let mut ret = Vec::with_capacity(tree.len());
     for x in tree.iter() {
         let name = x
