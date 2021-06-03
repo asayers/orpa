@@ -135,27 +135,28 @@ Current branch: The following commits are awaiting review:
   7cc8026 Use the gitlab raw Query API
   251ec84 Replace coloured with yansi
   da05da1 Document the CLI options
-
-Review them using "orpa review"
 ```
 
-And it has a "review" mode which lets you quickly blast through the unreviewed
-commits, marking them with comments as you go:
+Use `orpa list` to get the revisions in a form suitable for
+machine-consumption:
 
 ```
-$ orpa review
-commit da05da11960b59249a286999612c1fcba90dbd19
-Author: Joe Smith <joe@smith.net>
-Date:   Fri Feb 12 19:09:27 2021 +0900
-
-    Document the CLI options
-
- src/main.rs | 33 +++++++++++++++++++++++++++++----
- 1 file changed, 29 insertions(+), 4 deletions(-)
-
-> mark
-da05da11960b59249a286999612c1fcba90dbd19: Reviewed
+$ orpa list
+7cc80264ffda6c7aa768e62a8640684be6361111
+251ec841a88fa999a0b9dde4f17a22cd2d784602
+da05da1878353964048388427fcbb18ef3314bf1
 ```
+
+I like to pipe this into `tig` (you need to pass `--no-walk` to make sure
+tig only lists the specified commits).  Try putting this in your gitconfig:
+
+```
+[alias]
+    review = !sh -c 'orpa list | tig --no-walk --stdin'
+```
+
+Now `git review` shows a list of all the unreviewed commits, and you can
+blast through them by hitting 'T'.
 
 Both commands will accept a range, so you can use them with merge requests too:
 
@@ -165,8 +166,6 @@ $ orpa status 563e5fb..aadb1f9
 
   9fbc3f8 Make the notes ref configurable
   aadb1f9 Use Lazy for CLI opts
-
-Review them using "orpa review 563e5fb..aadb1f9"
 ```
 
 ## Advanced functionality
