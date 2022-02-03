@@ -211,11 +211,10 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
                 );
             } else {
                 println!(
-                    "  {}{:<6} {} ({} unreviewed)",
+                    "  {}{:<6} {}",
                     Paint::yellow("!"),
                     Paint::yellow(mr.iid.value()),
                     &mr.title,
-                    n_unreviewed,
                 );
             }
         }
@@ -309,7 +308,7 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
         }
     }
 
-    info!("Checking in on MRs we didn't get an update for");
+    info!("Checking in on open MRs we didn't get an update for");
     let mrs: HashSet<MergeRequestInternalId> = mrs.into_iter().map(|mr| mr.iid).collect();
     for entry in std::fs::read_dir(mr_dir)? {
         let entry = entry?;
