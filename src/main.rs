@@ -299,26 +299,30 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(mr_dir)? {
         let entry = entry?;
         let id = MergeRequestInternalId::new(entry.file_name().into_string().unwrap().parse()?);
-        if !mrs.contains(&id) {
-            let mr: MergeRequest = serde_json::from_reader(File::open(entry.path())?)?;
-            if mr.state == MergeRequestState::Opened {
-                info!("What has happened to !{}..?", mr.iid.value());
-                let new_info: MergeRequest = {
-                    use gitlab::api::{projects::merge_requests::*, *};
-                    let query = MergeRequestBuilder::default()
-                        .project(project_id)
-                        .merge_request(mr.id.value())
-                        .build()
-                        .map_err(|e| anyhow!(e))?;
-                    query.query(&gl)?
-                };
-                println!(
-                    "Status of !{} changed to {}",
-                    mr.iid,
-                    fmt_state(new_info.state)
-                );
-            }
+        if mrs.contains(&id) {
+            // We already saw this one, it's still open
+            continue;
         }
+        let mr: MergeRequest = serde_json::from_reader(File::open(entry.path())?)?;
+        if mr.state != MergeRequestState::Opened {
+            // This MR is closed, that's why we didn't see it in the results
+            continue;
+        }
+        info!("What has happened to !{}..?", mr.iid.value());
+        let new_info: MergeRequest = {
+            use gitlab::api::{projects::merge_requests::*, *};
+            let query = MergeRequestBuilder::default()
+                .project(project_id)
+                .merge_request(mr.id.value())
+                .build()
+                .map_err(|e| anyhow!(e))?;
+            query.query(&gl)?
+        };
+        println!(
+            "Status of !{} changed to {}",
+            mr.iid,
+            fmt_state(new_info.state)
+        );
     }
 
     Ok(())
