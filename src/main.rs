@@ -339,6 +339,10 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
                 continue;
             }
         };
+        serde_json::to_writer(File::create(entry.path())?, &new_info)?;
+        if let Some(info) = db.insert_if_newer(&repo, &gl, ProjectId::new(project_id), &new_info)? {
+            println!("Updated !{} to v{}", mr.iid.value(), info.rev + 1);
+        }
         println!(
             "Status of !{} changed to {}",
             mr.iid,
