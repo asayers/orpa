@@ -173,14 +173,27 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
             .iter()
             .filter(|mr| !(mr.work_in_progress || mr.author.username == me))
         {
-            let latest_rev = db.get_revs(mr).last().unwrap()?;
-            let range = format!("{}..{}", latest_rev.base, latest_rev.head);
-            let mut n_unreviewed = 0;
-            walk_new(&repo, Some(&range), |_| {
-                n_unreviewed += 1;
-            })?;
-            if n_unreviewed > 0 {
-                visible_mrs.push((mr, n_unreviewed));
+            let mut f = || {
+                let latest_rev = db
+                    .get_revs(mr)
+                    .last()
+                    .ok_or(anyhow!("Can't find any revisions"))??;
+                let range = format!("{}..{}", latest_rev.base, latest_rev.head);
+                let mut n_unreviewed = 0;
+                walk_new(&repo, Some(&range), |_| {
+                    n_unreviewed += 1;
+                })?;
+                if n_unreviewed > 0 {
+                    visible_mrs.push((mr, n_unreviewed));
+                }
+                anyhow::Ok(())
+            };
+            match f() {
+                Ok(()) => (),
+                Err(e) => {
+                    error!("{}: {}", mr.iid.value(), e);
+                    continue;
+                }
             }
         }
 
@@ -289,8 +302,10 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
 
     info!("Updating the DB with new revisions");
     for mr in &mrs {
-        if let Some(info) = db.insert_if_newer(&repo, &gl, ProjectId::new(project_id), mr)? {
-            println!("Updated !{} to v{}", mr.iid.value(), info.rev + 1);
+        match db.insert_if_newer(&repo, &gl, ProjectId::new(project_id), mr) {
+            Ok(Some(info)) => println!("Updated !{} to v{}", mr.iid.value(), info.rev + 1),
+            Ok(None) => (),
+            Err(e) => error!("{}", e),
         }
     }
 
@@ -309,14 +324,21 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
             continue;
         }
         info!("What has happened to !{}..?", mr.iid.value());
-        let new_info: MergeRequest = {
-            use gitlab::api::{projects::merge_requests::*, *};
-            let query = MergeRequestBuilder::default()
+        let q = {
+            use gitlab::api::projects::merge_requests::*;
+            MergeRequestBuilder::default()
                 .project(project_id)
                 .merge_request(mr.id.value())
                 .build()
-                .map_err(|e| anyhow!(e))?;
-            query.query(&gl)?
+                .map_err(|e| anyhow!(e))?
+        };
+        use gitlab::api::Query;
+        let new_info: MergeRequest = match q.query(&gl) {
+            Ok(x) => x,
+            Err(e) => {
+                error!("{}: {}", mr.iid.value(), e);
+                continue;
+            }
         };
         println!(
             "Status of !{} changed to {}",
