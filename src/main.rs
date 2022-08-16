@@ -4,30 +4,30 @@ mod review_db;
 use crate::mr_db::RevInfo;
 use crate::review_db::*;
 use anyhow::anyhow;
+use clap::Parser;
 use git2::{Oid, Repository};
 use gitlab::{Gitlab, MergeRequest, MergeRequestInternalId, MergeRequestState, ProjectId};
 use once_cell::sync::{Lazy, OnceCell};
 use std::collections::HashSet;
 use std::{fs::File, path::PathBuf};
-use structopt::StructOpt;
 use tracing::*;
 use yansi::Paint;
 
 pub static OPTS: Lazy<Opts> = Lazy::new(|| Opts::from_args());
 
 /// A tool for tracking private code review
-#[derive(StructOpt, Debug)]
+#[derive(Parser, Debug)]
 pub struct Opts {
-    #[structopt(subcommand)]
+    #[clap(subcommand)]
     pub cmd: Option<Cmd>,
-    #[structopt(long)]
+    #[clap(long)]
     pub db: Option<std::path::PathBuf>,
-    #[structopt(long)]
+    #[clap(long)]
     pub dedup: bool,
-    #[structopt(long)]
+    #[clap(long)]
     pub notes_ref: Option<String>,
 }
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub enum Cmd {
     /// Summarize the review status
     Status {
@@ -82,7 +82,7 @@ pub enum Cmd {
     /// The user's own MRs are hidden by default, as are WIP MRs.
     Mrs {
         /// Include hidden MRs.
-        #[structopt(long, short)]
+        #[clap(long, short)]
         all: bool,
     },
     /// Show recent reviews
