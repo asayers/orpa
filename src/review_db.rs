@@ -4,6 +4,7 @@ use chrono::NaiveDateTime;
 use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree};
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
+use sha1::{Digest, Sha1};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::io::Write;
@@ -102,11 +103,11 @@ impl Comparison {
 pub fn similiar_commits(repo: &Repository, c: &Commit) -> anyhow::Result<Vec<(Oid, Comparison)>> {
     let idx = get_idx(repo)?;
     let mut scores: HashMap<Oid, usize> = HashMap::new();
-    let all_lines: HashSet<sha1::Digest> = commit_lines!(repo, c)
-        .map(|line| sha1::Sha1::from(line.as_bytes()).digest())
+    let all_lines: HashSet<Line> = commit_lines!(repo, c)
+        .map(|line| Line(Sha1::digest(line).into()))
         .collect();
-    for digest in &all_lines {
-        for oid in idx.commits_containing(digest.into())? {
+    for &digest in &all_lines {
+        for oid in idx.commits_containing(digest)? {
             *(scores.entry(oid).or_default()) += 1;
         }
     }
@@ -139,12 +140,8 @@ pub struct LineIdx {
 }
 
 /// The SHA1 of a line in a commit's textual representation.
+#[derive(PartialEq, Eq, Copy, Clone, Hash)]
 pub struct Line(pub [u8; 20]);
-impl From<&sha1::Digest> for Line {
-    fn from(digest: &sha1::Digest) -> Self {
-        Line(digest.bytes())
-    }
-}
 
 impl LineIdx {
     pub fn commits_containing(&self, line: Line) -> anyhow::Result<Vec<Oid>> {
@@ -184,12 +181,12 @@ impl LineIdx {
             }
             let commit = repo.find_commit(oid)?;
             let all_lines = commit_lines!(repo, &commit)
-                .map(|line| sha1::Sha1::from(line.as_bytes()).digest())
+                .map(|line| Line(Sha1::digest(line).into()))
                 .collect::<HashSet<_>>();
             let mut all_lines_b = vec![];
             for digest in &all_lines {
-                self.reverse.merge(digest.bytes(), oid)?;
-                all_lines_b.extend_from_slice(&digest.bytes());
+                self.reverse.merge(digest.0, oid)?;
+                all_lines_b.extend_from_slice(&digest.0);
             }
             self.forward.insert(oid, all_lines_b)?;
         }
@@ -313,9 +310,9 @@ pub fn commit_diff<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<Diff<
 }
 
 /// The SHA1 of the textual diff of a commit against its first parent
-pub fn commit_diff_digest<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<sha1::Digest> {
+pub fn commit_diff_digest<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<Line> {
     let diff = commit_lines!(repo, c).join("\n");
-    Ok(sha1::Sha1::from(diff).digest())
+    Ok(Line(Sha1::digest(diff).into()))
 }
 
 pub fn empty_tree(repo: &Repository) -> anyhow::Result<Tree> {
