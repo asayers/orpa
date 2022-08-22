@@ -1,5 +1,6 @@
 use git2::{Oid, Repository};
 use gitlab::{Gitlab, MergeRequest, ProjectId};
+use std::fmt;
 use std::path::Path;
 use tracing::*;
 
@@ -16,9 +17,18 @@ pub struct Db(sled::Db);
 
 #[derive(Clone, Copy, Debug)]
 pub struct VersionInfo {
-    pub version: u8,
+    pub version: Version,
     pub base: Oid,
     pub head: Oid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Version(u8);
+
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "v{}", self.0 + 1)
+    }
 }
 
 impl Db {
@@ -34,7 +44,7 @@ impl Db {
         let existing = self.0.scan_prefix(&mr_id);
         existing.map(|x| {
             let (k, v) = x?;
-            let version: u8 = k[8];
+            let version = Version(k[8]);
             let base = Oid::from_bytes(&v[..20])?;
             let head = Oid::from_bytes(&v[20..])?;
             Ok(VersionInfo {
@@ -49,7 +59,7 @@ impl Db {
         let mut key = [0; 9];
         let mr_id = mr.iid.value().to_le_bytes();
         key[..8].copy_from_slice(&mr_id);
-        key[8] = info.version;
+        key[8] = info.version.0;
         let mut val = Box::new([0; 40]);
         val[..20].copy_from_slice(info.base.as_bytes());
         val[20..].copy_from_slice(info.head.as_bytes());
@@ -72,7 +82,7 @@ impl Db {
         let current_head = Oid::from_str(mr.sha.as_ref().unwrap().value())?;
         if latest.map(|x| x.head) != Some(current_head) {
             let info = VersionInfo {
-                version: latest.map_or(0, |x| x.version + 1),
+                version: latest.map_or(Version(0), |x| Version(x.version.0 + 1)),
                 base: mr_base(&repo, &gl, project_id, &mr, current_head)?,
                 head: current_head,
             };

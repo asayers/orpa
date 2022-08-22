@@ -301,7 +301,7 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
     info!("Updating the DB with new versions");
     for mr in &mrs {
         match db.insert_if_newer(&repo, &gl, ProjectId::new(project_id), mr) {
-            Ok(Some(info)) => println!("Updated !{} to v{}", mr.iid.value(), info.version + 1),
+            Ok(Some(info)) => println!("Updated !{} to {}", mr.iid.value(), info.version),
             Ok(None) => (),
             Err(e) => error!("{}", e),
         }
@@ -345,7 +345,7 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
         };
         serde_json::to_writer(File::create(entry.path())?, &new_info)?;
         if let Some(info) = db.insert_if_newer(&repo, &gl, ProjectId::new(project_id), &new_info)? {
-            println!("Updated !{} to v{}", mr.iid.value(), info.version + 1);
+            println!("Updated !{} to {}", mr.iid.value(), info.version);
         }
         println!(
             "Status of !{} changed to {}",
@@ -437,15 +437,11 @@ fn print_version(repo: &Repository, version: VersionInfo) -> anyhow::Result<()> 
             n_total,
         )
     };
-    let base = repo.find_commit(base)?;
-    let head = repo.find_commit(head)?;
-    println!(
-        "    v{} {}..{}{}",
-        version + 1,
-        Paint::blue(base.as_object().short_id()?.as_str().unwrap_or("")),
-        Paint::magenta(head.as_object().short_id()?.as_str().unwrap_or("")),
-        unreviewed_msg,
-    );
+    let base = repo.find_commit(base)?.as_object().short_id()?;
+    let base = Paint::blue(base.as_str().unwrap_or(""));
+    let head = repo.find_commit(head)?.as_object().short_id()?;
+    let head = Paint::magenta(head.as_str().unwrap_or(""));
+    println!("    {version} {base}..{head}{unreviewed_msg}");
     Ok(())
 }
 
