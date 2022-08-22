@@ -327,12 +327,17 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
             MergeRequestBuilder::default()
                 .project(project_id)
                 .merge_request(mr.id.value())
-                .build()
-                .map_err(|e| anyhow!(e))?
+                .build()?
         };
         use gitlab::api::Query;
         let new_info: MergeRequest = match q.query(&gl) {
             Ok(x) => x,
+            Err(gitlab::api::ApiError::Gitlab { msg }) if msg == "404 Not found" => {
+                let path = entry.path();
+                warn!("MR is gone! Deleting {}...", path.display());
+                std::fs::remove_file(path)?;
+                continue;
+            }
             Err(e) => {
                 error!("{}: {}", mr.iid.value(), e);
                 continue;
