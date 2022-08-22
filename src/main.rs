@@ -1,7 +1,7 @@
 mod mr_db;
 mod review_db;
 
-use crate::mr_db::RevInfo;
+use crate::mr_db::VersionInfo;
 use crate::review_db::*;
 use anyhow::anyhow;
 use clap::Parser;
@@ -174,9 +174,9 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
         {
             let mut f = || {
                 let latest_rev = db
-                    .get_revs(mr)
+                    .get_versions(mr)
                     .last()
-                    .ok_or(anyhow!("Can't find any revisions"))??;
+                    .ok_or(anyhow!("Can't find any versions"))??;
                 let range = format!("{}..{}", latest_rev.base, latest_rev.head);
                 let mut n_unreviewed = 0;
                 walk_new(&repo, Some(&range), |_| {
@@ -298,10 +298,10 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
         serde_json::to_writer(File::create(path)?, &mr)?;
     }
 
-    info!("Updating the DB with new revisions");
+    info!("Updating the DB with new versions");
     for mr in &mrs {
         match db.insert_if_newer(&repo, &gl, ProjectId::new(project_id), mr) {
-            Ok(Some(info)) => println!("Updated !{} to v{}", mr.iid.value(), info.rev + 1),
+            Ok(Some(info)) => println!("Updated !{} to v{}", mr.iid.value(), info.version + 1),
             Ok(None) => (),
             Err(e) => error!("{}", e),
         }
@@ -340,7 +340,7 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
         };
         serde_json::to_writer(File::create(entry.path())?, &new_info)?;
         if let Some(info) = db.insert_if_newer(&repo, &gl, ProjectId::new(project_id), &new_info)? {
-            println!("Updated !{} to v{}", mr.iid.value(), info.rev + 1);
+            println!("Updated !{} to v{}", mr.iid.value(), info.version + 1);
         }
         println!(
             "Status of !{} changed to {}",
@@ -376,8 +376,8 @@ fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
     let me = config.get_string("gitlab.username")?;
     print_mr(&me, &mr);
     println!();
-    for x in db.get_revs(&mr) {
-        print_rev(&repo, x?)?;
+    for x in db.get_versions(&mr) {
+        print_version(&repo, x?)?;
     }
     Ok(())
 }
@@ -393,8 +393,8 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
     {
         print_mr(&me, &mr);
         println!();
-        for x in db.get_revs(mr) {
-            print_rev(&repo, x?)?;
+        for x in db.get_versions(mr) {
+            print_version(&repo, x?)?;
         }
         println!();
     }
@@ -409,8 +409,12 @@ fn similar(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn print_rev(repo: &Repository, rev: RevInfo) -> anyhow::Result<()> {
-    let RevInfo { rev, base, head } = rev;
+fn print_version(repo: &Repository, version: VersionInfo) -> anyhow::Result<()> {
+    let VersionInfo {
+        version,
+        base,
+        head,
+    } = version;
     let range = format!("{}..{}", base, head);
     let mut walk_all = repo.revwalk()?;
     walk_all.push_range(&range)?;
@@ -432,7 +436,7 @@ fn print_rev(repo: &Repository, rev: RevInfo) -> anyhow::Result<()> {
     let head = repo.find_commit(head)?;
     println!(
         "    v{} {}..{}{}",
-        rev + 1,
+        version + 1,
         Paint::blue(base.as_object().short_id()?.as_str().unwrap_or("")),
         Paint::magenta(head.as_object().short_id()?.as_str().unwrap_or("")),
         unreviewed_msg,

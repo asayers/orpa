@@ -3,20 +3,20 @@ use gitlab::{Gitlab, MergeRequest, ProjectId};
 use std::path::Path;
 use tracing::*;
 
-/// A database which stores MR revisions.
+/// A database which stores MR versions.
 ///
 /// # Database schema
 ///
-/// Logically, the DB is a map from (merge request ID, revision number) =>
+/// Logically, the DB is a map from (merge request ID, version number) =>
 /// (base OID, head OID).
 ///
-/// Keys: the MR ID (8 bytes) followed by the revision number (1 byte).
+/// Keys: the MR ID (8 bytes) followed by the version number (1 byte).
 /// Values: the base OID (20 bytes) followed by the head OID (20 bytes).
 pub struct Db(sled::Db);
 
 #[derive(Clone, Copy, Debug)]
-pub struct RevInfo {
-    pub rev: u8,
+pub struct VersionInfo {
+    pub version: u8,
     pub base: Oid,
     pub head: Oid,
 }
@@ -26,23 +26,30 @@ impl Db {
         Ok(Db(sled::open(path)?))
     }
 
-    pub fn get_revs(&self, mr: &MergeRequest) -> impl Iterator<Item = anyhow::Result<RevInfo>> {
+    pub fn get_versions(
+        &self,
+        mr: &MergeRequest,
+    ) -> impl Iterator<Item = anyhow::Result<VersionInfo>> {
         let mr_id = mr.iid.value().to_le_bytes();
         let existing = self.0.scan_prefix(&mr_id);
         existing.map(|x| {
             let (k, v) = x?;
-            let rev: u8 = k[8];
+            let version: u8 = k[8];
             let base = Oid::from_bytes(&v[..20])?;
             let head = Oid::from_bytes(&v[20..])?;
-            Ok(RevInfo { rev, base, head })
+            Ok(VersionInfo {
+                version,
+                base,
+                head,
+            })
         })
     }
 
-    fn insert_rev(&self, mr: &MergeRequest, info: RevInfo) -> anyhow::Result<()> {
+    fn insert_version(&self, mr: &MergeRequest, info: VersionInfo) -> anyhow::Result<()> {
         let mut key = [0; 9];
         let mr_id = mr.iid.value().to_le_bytes();
         key[..8].copy_from_slice(&mr_id);
-        key[8] = info.rev;
+        key[8] = info.version;
         let mut val = Box::new([0; 40]);
         val[..20].copy_from_slice(info.base.as_bytes());
         val[20..].copy_from_slice(info.head.as_bytes());
@@ -56,21 +63,21 @@ impl Db {
         gl: &Gitlab,
         project_id: ProjectId,
         mr: &MergeRequest,
-    ) -> anyhow::Result<Option<RevInfo>> {
-        let latest = self.get_revs(mr).last().transpose()?;
+    ) -> anyhow::Result<Option<VersionInfo>> {
+        let latest = self.get_versions(mr).last().transpose()?;
         // We only update the DB if the head has changed.  Technically we
         // should re-check the base each time as well (in case the target
         // branch has changed); however, this means making an API request
         // per-MR, and is slow.
         let current_head = Oid::from_str(mr.sha.as_ref().unwrap().value())?;
         if latest.map(|x| x.head) != Some(current_head) {
-            let info = RevInfo {
-                rev: latest.map_or(0, |x| x.rev + 1),
+            let info = VersionInfo {
+                version: latest.map_or(0, |x| x.version + 1),
                 base: mr_base(&repo, &gl, project_id, &mr, current_head)?,
                 head: current_head,
             };
-            info!("Inserting new revision: {:?}", info);
-            self.insert_rev(mr, info)?;
+            info!("Inserting new version: {:?}", info);
+            self.insert_version(mr, info)?;
             Ok(Some(info))
         } else {
             Ok(None)
