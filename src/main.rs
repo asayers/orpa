@@ -273,7 +273,9 @@ impl GitlabConfig {
         info!("Loading the config");
         let config = repo.config()?;
         Ok(GitlabConfig {
-            host: config.get_string("gitlab.url")?,
+            host: config
+                .get_string("gitlab.url")
+                .unwrap_or("gitlab.com".into()),
             project_id: ProjectId::new(config.get_i64("gitlab.projectId")? as u64),
             token: config.get_string("gitlab.privateToken")?,
         })
