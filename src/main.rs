@@ -262,28 +262,39 @@ fn add_note(repo: &Repository, oid: Oid, verb: &str) -> anyhow::Result<()> {
     append_note(repo, oid, &new_note)
 }
 
+pub struct GitlabConfig {
+    pub host: String,
+    pub project_id: ProjectId,
+    pub token: String,
+}
+
+impl GitlabConfig {
+    fn load(repo: &Repository) -> anyhow::Result<GitlabConfig> {
+        info!("Loading the config");
+        let config = repo.config()?;
+        Ok(GitlabConfig {
+            host: config.get_string("gitlab.url")?,
+            project_id: ProjectId::new(config.get_i64("gitlab.projectId")? as u64),
+            token: config.get_string("gitlab.privateToken")?,
+        })
+    }
+}
+
 fn fetch(repo: &Repository) -> anyhow::Result<()> {
-    info!("Loading the config");
-    let config = repo.config()?;
-    let gitlab_host = config.get_string("gitlab.url")?;
-    let gitlab_token = config.get_string("gitlab.privateToken")?;
-    let project_id = config.get_i64("gitlab.projectId")? as u64;
+    let config = GitlabConfig::load(repo)?;
 
     info!("Opening the database");
     let db_path = db_path(repo);
     let db = mr_db::Db::open(&db_path)?;
 
-    info!("Connecting to gitlab at {}", &gitlab_host);
-    let gl = Gitlab::new(&gitlab_host, &gitlab_token)?;
+    info!("Connecting to gitlab at {}", config.host);
+    let gl = Gitlab::new(&config.host, &config.token)?;
 
-    println!(
-        "Fetching open MRs for project {} from {}...",
-        project_id, gitlab_host
-    );
+    println!("Fetching open MRs for project {}...", config.project_id);
     let mrs: Vec<MergeRequest> = {
         use gitlab::api::{projects::merge_requests::*, *};
         let query = MergeRequestsBuilder::default()
-            .project(project_id)
+            .project(config.project_id.value())
             .state(MergeRequestState::Opened)
             .build()
             .map_err(|e| anyhow!(e))?;
@@ -300,7 +311,7 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
 
     info!("Updating the DB with new versions");
     for mr in &mrs {
-        match db.insert_if_newer(&repo, &gl, ProjectId::new(project_id), mr) {
+        match db.insert_if_newer(&repo, &gl, config.project_id, mr) {
             Ok(Some(info)) => println!("Updated !{} to {}", mr.iid.value(), info.version),
             Ok(None) => (),
             Err(e) => error!("{}", e),
@@ -325,7 +336,7 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
         let q = {
             use gitlab::api::projects::merge_requests::*;
             MergeRequestBuilder::default()
-                .project(project_id)
+                .project(config.project_id.value())
                 .merge_request(mr.id.value())
                 .build()?
         };
@@ -344,7 +355,7 @@ fn fetch(repo: &Repository) -> anyhow::Result<()> {
             }
         };
         serde_json::to_writer(File::create(entry.path())?, &new_info)?;
-        if let Some(info) = db.insert_if_newer(&repo, &gl, ProjectId::new(project_id), &new_info)? {
+        if let Some(info) = db.insert_if_newer(&repo, &gl, config.project_id, &new_info)? {
             println!("Updated !{} to {}", mr.iid.value(), info.version);
         }
         println!(
