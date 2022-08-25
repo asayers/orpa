@@ -428,12 +428,42 @@ fn similar(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
 }
 
 fn print_version(repo: &Repository, version: VersionInfo) -> anyhow::Result<()> {
-    let VersionInfo {
-        version,
-        base,
-        head,
-    } = version;
-    let range = format!("{}..{}", base, head);
+    match resolve_version(repo, version) {
+        Ok((base, head, n_unreviewed, n_total)) => {
+            let unreviewed_msg = if n_unreviewed == 0 {
+                "".into()
+            } else {
+                format!(
+                    " ({}/{} reviewed)",
+                    Paint::new(n_total - n_unreviewed).bold(),
+                    n_total,
+                )
+            };
+            let base = base.as_object().short_id()?;
+            let base = Paint::blue(base.as_str().unwrap_or(""));
+            let head = head.as_object().short_id()?;
+            let head = Paint::magenta(head.as_str().unwrap_or(""));
+            println!("    {} {base}..{head}{unreviewed_msg}", version.version);
+        }
+        Err(_) => {
+            let base = &version.base.to_string()[..7];
+            let head = &version.head.to_string()[..7];
+            println!(
+                "    {} {}..{} (commits missing)",
+                version.version,
+                Paint::blue(base),
+                Paint::magenta(head),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn resolve_version(
+    repo: &Repository,
+    version: VersionInfo,
+) -> anyhow::Result<(git2::Commit, git2::Commit, usize, usize)> {
+    let range = format!("{}..{}", version.base, version.head);
     let mut walk_all = repo.revwalk()?;
     walk_all.push_range(&range)?;
     let n_total = walk_all.count();
@@ -441,21 +471,9 @@ fn print_version(repo: &Repository, version: VersionInfo) -> anyhow::Result<()> 
     walk_new(&repo, Some(&range), |_| {
         n_unreviewed += 1;
     })?;
-    let unreviewed_msg = if n_unreviewed == 0 {
-        "".into()
-    } else {
-        format!(
-            " ({}/{} reviewed)",
-            Paint::new(n_total - n_unreviewed).bold(),
-            n_total,
-        )
-    };
-    let base = repo.find_commit(base)?.as_object().short_id()?;
-    let base = Paint::blue(base.as_str().unwrap_or(""));
-    let head = repo.find_commit(head)?.as_object().short_id()?;
-    let head = Paint::magenta(head.as_str().unwrap_or(""));
-    println!("    {version} {base}..{head}{unreviewed_msg}");
-    Ok(())
+    let base = repo.find_commit(version.base)?;
+    let head = repo.find_commit(version.head)?;
+    Ok((base, head, n_unreviewed, n_total))
 }
 
 fn fmt_state(x: MergeRequestState) -> &'static str {
