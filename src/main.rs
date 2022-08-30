@@ -104,6 +104,7 @@ pub fn get_idx(repo: &Repository) -> anyhow::Result<&LineIdx> {
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let repo = Repository::open_from_env()?;
+    pager::Pager::with_pager("less -FRSX").setup();
     match OPTS.cmd.clone() {
         None => summary(&repo, None),
         Some(Cmd::Status { range }) => summary(&repo, range),
