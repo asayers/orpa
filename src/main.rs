@@ -381,6 +381,7 @@ fn cached_mrs(repo: &Repository) -> anyhow::Result<Vec<MergeRequest>> {
         let mr: MergeRequest = serde_json::from_reader(File::open(entry?.path())?)?;
         mrs.push(mr);
     }
+    mrs.sort_by_key(|mr| std::cmp::Reverse(mr.updated_at));
     Ok(mrs)
 }
 
@@ -404,14 +405,12 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
     let db = mr_db::Db::open(&db_path(repo))?;
-    let mrs = cached_mrs(repo)?;
-    for mr in mrs
-        .iter()
-        .filter(|mr| include_all || (!mr.work_in_progress && mr.author.username != me))
-    {
+    let mut mrs = cached_mrs(repo)?;
+    mrs.retain(|mr| include_all || (!mr.work_in_progress && mr.author.username != me));
+    for mr in mrs {
         print_mr(&me, &mr);
         println!();
-        for x in db.get_versions(mr) {
+        for x in db.get_versions(&mr) {
             print_version(&repo, x?)?;
         }
         println!();
