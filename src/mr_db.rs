@@ -15,11 +15,17 @@ use tracing::*;
 /// Values: the base OID (20 bytes) followed by the head OID (20 bytes).
 pub struct Db(sled::Db);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VersionInfo {
     pub version: Version,
     pub base: Oid,
     pub head: Oid,
+}
+
+impl fmt::Display for VersionInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}: {}..{}", self.version, self.base, self.head)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
