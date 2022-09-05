@@ -36,11 +36,11 @@ pub fn fetch(repo: &Repository) -> anyhow::Result<()> {
     }
 
     info!("Updating the DB with new versions");
+    let client = reqwest::blocking::Client::new();
     for mr in &mrs {
-        match insert_if_newer(&db, &repo, &gl, config.project_id, mr) {
-            Ok(Some(info)) => println!("Updated !{} to {}", mr.iid.value(), info.version),
-            Ok(None) => (),
-            Err(e) => error!("{}", e),
+        let _s = tracing::info_span!("", mr = %mr.iid).entered();
+        if let Err(e) = update_versions(&db, &client, &config, &repo, &gl, mr) {
+            error!("{e}");
         }
     }
 
@@ -81,44 +81,65 @@ pub fn fetch(repo: &Repository) -> anyhow::Result<()> {
             }
         };
         serde_json::to_writer(File::create(entry.path())?, &new_info)?;
-        if let Some(info) = insert_if_newer(&db, &repo, &gl, config.project_id, &new_info)? {
-            println!("Updated !{} to {}", mr.iid.value(), info.version);
-        }
         println!(
             "Status of !{} changed to {}",
             mr.iid,
             crate::fmt_state(new_info.state)
         );
+        if let Err(e) = update_versions(&db, &client, &config, &repo, &gl, &new_info) {
+            error!("{e}");
+        }
     }
 
     Ok(())
 }
 
-fn insert_if_newer(
+fn update_versions(
     db: &crate::mr_db::Db,
+    client: &reqwest::blocking::Client,
+    config: &GitlabConfig,
     repo: &Repository,
     gl: &Gitlab,
-    project_id: ProjectId,
     mr: &MergeRequest,
-) -> anyhow::Result<Option<VersionInfo>> {
+) -> anyhow::Result<()> {
+    let mr_iid = mr.iid.value();
     let latest = db.get_versions(mr).last().transpose()?;
     // We only update the DB if the head has changed.  Technically we
     // should re-check the base each time as well (in case the target
     // branch has changed); however, this means making an API request
     // per-MR, and is slow.
     let current_head = Oid::from_str(mr.sha.as_ref().unwrap().value())?;
-    if latest.map(|x| x.head) != Some(current_head) {
-        let info = VersionInfo {
-            version: latest.map_or(Version(0), |x| Version(x.version.0 + 1)),
-            base: mr_base(&repo, &gl, project_id, &mr, current_head)?,
-            head: current_head,
-        };
-        info!("Inserting new version: {:?}", info);
-        db.insert_version(mr, info)?;
-        Ok(Some(info))
-    } else {
-        Ok(None)
+    if latest.map(|x| x.head) == Some(current_head) {
+        info!("Skipping MR since its head rev hasn't changed");
+        return Ok(());
     }
+    let versions = match query_versions(client, config, mr_iid) {
+        Ok(x) => x,
+        Err(e) => {
+            error!("Couldn't query the version history: {e}");
+            info!("Falling back to recording the current state as the lastest version");
+            let info = VersionInfo {
+                version: latest.map_or(Version(0), |x| Version(x.version.0 + 1)),
+                base: mr_base(&repo, &gl, config.project_id, &mr, current_head)?,
+                head: current_head,
+            };
+            vec![info]
+        }
+    };
+    for &info in &versions {
+        let prev = db.insert_version(mr_iid, info)?;
+        if let Some(prev) = prev {
+            if prev != info {
+                warn!("Changed existing version! Was {prev}, now {info}");
+            }
+        } else {
+            println!("Inserted {info}");
+        }
+    }
+    if let Some(info) = versions.last() {
+        println!("Updated !{mr_iid} to {}", info.version);
+    }
+    Ok(())
 }
 
 fn mr_base<'a>(
@@ -145,4 +166,33 @@ fn mr_base<'a>(
         let target = Oid::from_str(branch.commit.unwrap().id.value())?;
         Ok(repo.merge_base(head, target)?)
     }
+}
+
+/// Get the version history from gitlab.  If this endpoint is available,
+/// it's the best thing to use.
+fn query_versions(
+    client: &reqwest::blocking::Client,
+    config: &GitlabConfig,
+    mr_iid: u64,
+) -> anyhow::Result<Vec<VersionInfo>> {
+    info!("Querying for versions");
+    let resp: Vec<serde_json::Value> = client
+        .get(format!(
+            "https://{}/api/v4/projects/{}/merge_requests/{}/versions",
+            config.host, config.project_id, mr_iid,
+        ))
+        .header("PRIVATE-TOKEN", &config.token)
+        .send()?
+        .json()?;
+    resp.into_iter()
+        .rev()
+        .enumerate()
+        .map(|(i, x)| {
+            Ok(VersionInfo {
+                version: Version(i as u8),
+                base: Oid::from_str(&x["base_commit_sha"].as_str().unwrap())?,
+                head: Oid::from_str(&x["head_commit_sha"].as_str().unwrap())?,
+            })
+        })
+        .collect()
 }

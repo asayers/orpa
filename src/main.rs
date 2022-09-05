@@ -309,8 +309,10 @@ fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
     let me = config.get_string("gitlab.username")?;
     print_mr(&me, &mr);
     println!();
-    for x in db.get_versions(&mr) {
-        print_version(&repo, x?)?;
+    let vers = db.get_versions(&mr).collect::<anyhow::Result<Vec<_>>>()?;
+    let n_vers = vers.len();
+    for (i, version) in vers.into_iter().enumerate() {
+        print_version(&repo, version, i + 1 == n_vers)?;
     }
     Ok(())
 }
@@ -324,8 +326,10 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
     for mr in mrs {
         print_mr(&me, &mr);
         println!();
-        for x in db.get_versions(&mr) {
-            print_version(&repo, x?)?;
+        let vers = db.get_versions(&mr).collect::<anyhow::Result<Vec<_>>>()?;
+        let n_vers = vers.len();
+        for (i, version) in vers.into_iter().enumerate() {
+            print_version(&repo, version, i + 1 == n_vers)?;
         }
         println!();
     }
@@ -340,24 +344,12 @@ fn similar(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn print_version(repo: &Repository, version: VersionInfo) -> anyhow::Result<()> {
-    match resolve_version(repo, version) {
-        Ok((base, head, n_unreviewed, n_total)) => {
-            let unreviewed_msg = if n_unreviewed == 0 {
-                "".into()
-            } else {
-                format!(
-                    " ({}/{} reviewed)",
-                    Paint::new(n_total - n_unreviewed).bold(),
-                    n_total,
-                )
-            };
-            let base = base.as_object().short_id()?;
-            let base = Paint::blue(base.as_str().unwrap_or(""));
-            let head = head.as_object().short_id()?;
-            let head = Paint::magenta(head.as_str().unwrap_or(""));
-            println!("    {} {base}..{head}{unreviewed_msg}", version.version);
-        }
+fn print_version(repo: &Repository, version: VersionInfo, is_last: bool) -> anyhow::Result<()> {
+    let (base, head) = match repo
+        .find_commit(version.base)
+        .and_then(|x| repo.find_commit(version.head).map(|y| (x, y)))
+    {
+        Ok(x) => x,
         Err(_) => {
             let base = &version.base.to_string()[..7];
             let head = &version.head.to_string()[..7];
@@ -367,15 +359,57 @@ fn print_version(repo: &Repository, version: VersionInfo) -> anyhow::Result<()> 
                 Paint::blue(base),
                 Paint::magenta(head),
             );
+            return Ok(());
+        }
+    };
+
+    {
+        let base = base.as_object().short_id()?;
+        let head = head.as_object().short_id()?;
+        print!(
+            "    {} {}..{}",
+            version.version,
+            Paint::blue(base.as_str().unwrap_or("")),
+            Paint::magenta(head.as_str().unwrap_or("")),
+        );
+    }
+
+    let (n_unreviewed, n_total) = count_reviewed(repo, version)?;
+    if n_unreviewed != 0 {
+        print!(
+            " ({}/{} reviewed)",
+            Paint::new(n_total - n_unreviewed).bold(),
+            n_total,
+        );
+    }
+    println!();
+
+    if is_last {
+        let diff = repo.diff_tree_to_tree(Some(&base.tree()?), Some(&head.tree()?), None)?;
+        println!();
+        print_diff_stat(diff)?;
+    }
+
+    Ok(())
+}
+
+fn print_diff_stat(diff: git2::Diff) -> anyhow::Result<()> {
+    let stats = diff.stats()?.to_buf(git2::DiffStatsFormat::FULL, 100)?;
+    for l in stats.as_str().unwrap().lines() {
+        match l.split_once('|') {
+            None => println!("{}", l),
+            Some((path, change)) => {
+                let change = change
+                    .replace('+', &Paint::green("+").to_string())
+                    .replace('-', &Paint::red("-").to_string());
+                println!("{}|{}", path, change);
+            }
         }
     }
     Ok(())
 }
 
-fn resolve_version(
-    repo: &Repository,
-    version: VersionInfo,
-) -> anyhow::Result<(git2::Commit, git2::Commit, usize, usize)> {
+fn count_reviewed(repo: &Repository, version: VersionInfo) -> anyhow::Result<(usize, usize)> {
     let range = format!("{}..{}", version.base, version.head);
     let mut walk_all = repo.revwalk()?;
     walk_all.push_range(&range)?;
@@ -384,9 +418,7 @@ fn resolve_version(
     walk_new(&repo, Some(&range), |_| {
         n_unreviewed += 1;
     })?;
-    let base = repo.find_commit(version.base)?;
-    let head = repo.find_commit(version.head)?;
-    Ok((base, head, n_unreviewed, n_total))
+    Ok((n_unreviewed, n_total))
 }
 
 pub fn fmt_state(x: MergeRequestState) -> &'static str {

@@ -17,6 +17,7 @@ pub struct Db(sled::Db);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VersionInfo {
     pub version: Version,
+    // TODO: pub time: DateTime,
     pub base: Oid,
     pub head: Oid,
 }
@@ -60,15 +61,27 @@ impl Db {
         })
     }
 
-    pub fn insert_version(&self, mr: &MergeRequest, info: VersionInfo) -> anyhow::Result<()> {
+    pub fn insert_version(
+        &self,
+        mr_id: u64,
+        info: VersionInfo,
+    ) -> anyhow::Result<Option<VersionInfo>> {
         let mut key = [0; 9];
-        let mr_id = mr.iid.value().to_le_bytes();
-        key[..8].copy_from_slice(&mr_id);
+        key[..8].copy_from_slice(&mr_id.to_le_bytes());
         key[8] = info.version.0;
         let mut val = Box::new([0; 40]);
         val[..20].copy_from_slice(info.base.as_bytes());
         val[20..].copy_from_slice(info.head.as_bytes());
-        self.0.insert(key, val as Box<[u8]>)?;
-        Ok(())
+        Ok(self
+            .0
+            .insert(key, val as Box<[u8]>)?
+            .map(|xs| {
+                anyhow::Ok(VersionInfo {
+                    version: info.version,
+                    base: Oid::from_bytes(&xs[..20])?,
+                    head: Oid::from_bytes(&xs[20..])?,
+                })
+            })
+            .transpose()?)
     }
 }
