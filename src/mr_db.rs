@@ -72,8 +72,7 @@ impl Db {
         let mut val = Box::new([0; 40]);
         val[..20].copy_from_slice(info.base.as_bytes());
         val[20..].copy_from_slice(info.head.as_bytes());
-        Ok(self
-            .0
+        self.0
             .insert(key, val as Box<[u8]>)?
             .map(|xs| {
                 anyhow::Ok(VersionInfo {
@@ -82,6 +81,6 @@ impl Db {
                     head: Oid::from_bytes(&xs[20..])?,
                 })
             })
-            .transpose()?)
+            .transpose()
     }
 }

@@ -39,7 +39,7 @@ pub fn fetch(repo: &Repository) -> anyhow::Result<()> {
     let client = reqwest::blocking::Client::new();
     for mr in &mrs {
         let _s = tracing::info_span!("", mr = %mr.iid).entered();
-        if let Err(e) = update_versions(&db, &client, &config, &repo, &gl, mr) {
+        if let Err(e) = update_versions(&db, &client, &config, repo, &gl, mr) {
             error!("{e}");
         }
     }
@@ -86,7 +86,7 @@ pub fn fetch(repo: &Repository) -> anyhow::Result<()> {
             mr.iid,
             crate::fmt_state(new_info.state)
         );
-        if let Err(e) = update_versions(&db, &client, &config, &repo, &gl, &new_info) {
+        if let Err(e) = update_versions(&db, &client, &config, repo, &gl, &new_info) {
             error!("{e}");
         }
     }
@@ -120,7 +120,7 @@ fn update_versions(
             info!("Falling back to recording the current state as the lastest version");
             let info = VersionInfo {
                 version: latest.map_or(Version(0), |x| Version(x.version.0 + 1)),
-                base: mr_base(&repo, &gl, config.project_id, &mr, current_head)?,
+                base: mr_base(repo, gl, config.project_id, mr, current_head)?,
                 head: current_head,
             };
             vec![info]
@@ -190,8 +190,8 @@ fn query_versions(
         .map(|(i, x)| {
             Ok(VersionInfo {
                 version: Version(i as u8),
-                base: Oid::from_str(&x["base_commit_sha"].as_str().unwrap())?,
-                head: Oid::from_str(&x["head_commit_sha"].as_str().unwrap())?,
+                base: Oid::from_str(x["base_commit_sha"].as_str().unwrap())?,
+                head: Oid::from_str(x["head_commit_sha"].as_str().unwrap())?,
             })
         })
         .collect()

@@ -58,7 +58,7 @@ pub fn recent_notes(repo: &Repository) -> anyhow::Result<Vec<Oid>> {
     for x in tree.iter() {
         let name = x
             .name()
-            .ok_or(anyhow!("Commit is not even unicode, let alone hex!"))?;
+            .ok_or_else(|| anyhow!("Commit is not even unicode, let alone hex!"))?;
         ret.push(Oid::from_str(name)?);
     }
     Ok(ret)
@@ -176,7 +176,7 @@ impl LineIdx {
         let forward = db.open_tree("forward")?;
         let reverse = db.open_tree("reverse")?;
         fn append(_: &[u8], existing: Option<&[u8]>, incoming: &[u8]) -> Option<Vec<u8>> {
-            let mut ret = existing.map(|x| x.to_vec()).unwrap_or_else(|| vec![]);
+            let mut ret = existing.map(|x| x.to_vec()).unwrap_or_else(Vec::new);
             ret.extend_from_slice(incoming);
             Some(ret)
         }
@@ -357,7 +357,7 @@ pub fn show_commit_with_diffstat(repo: &Repository, oid: Oid) -> anyhow::Result<
     Ok(())
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Status {
     Reviewed,
     Checkpoint,

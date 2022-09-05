@@ -14,7 +14,7 @@ use std::{fs::File, path::PathBuf};
 use tracing::*;
 use yansi::Paint;
 
-pub static OPTS: Lazy<Opts> = Lazy::new(|| Opts::from_args());
+pub static OPTS: Lazy<Opts> = Lazy::new(Opts::from_args);
 
 /// A tool for tracking private code review
 #[derive(Parser, Debug)]
@@ -96,8 +96,8 @@ pub enum Cmd {
 pub fn get_idx(repo: &Repository) -> anyhow::Result<&LineIdx> {
     static LINE_IDX: OnceCell<LineIdx> = OnceCell::new();
     LINE_IDX.get_or_try_init(|| {
-        let idx = LineIdx::open(&db_path(&repo))?;
-        idx.refresh(&repo)?;
+        let idx = LineIdx::open(&db_path(repo))?;
+        idx.refresh(repo)?;
         Ok(idx)
     })
 }
@@ -157,10 +157,10 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 let latest_rev = db
                     .get_versions(mr)
                     .last()
-                    .ok_or(anyhow!("Can't find any versions"))??;
+                    .ok_or_else(|| anyhow!("Can't find any versions"))??;
                 let range = format!("{}..{}", latest_rev.base, latest_rev.head);
                 let mut n_unreviewed = 0;
-                walk_new(&repo, Some(&range), |_| {
+                walk_new(repo, Some(&range), |_| {
                     n_unreviewed += 1;
                 })?;
                 if n_unreviewed > 0 {
@@ -177,7 +177,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
             }
         }
 
-        if visible_mrs.len() > 0 {
+        if !visible_mrs.is_empty() {
             println!("Merge requests with unreviewed commits:\n");
         }
         for (mr, n_unreviewed) in visible_mrs.iter().take(10) {
@@ -206,7 +206,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 visible_mrs.len() - 10,
             );
         }
-        if visible_mrs.len() > 0 {
+        if !visible_mrs.is_empty() {
             println!("\nUse \"orpa mr <id>\" to see the full MR information");
         }
     }
@@ -215,7 +215,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
 
 fn branch(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
     let mut new = vec![];
-    walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
+    walk_new(repo, range.as_ref(), |oid| new.push(oid))?;
     let n_new = new.len();
     let current = range.as_ref().map_or("Current branch", |x| x.as_str());
     if n_new == 0 {
@@ -223,7 +223,7 @@ fn branch(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
     } else {
         println!("{}: The following commits are awaiting review:\n", current);
         for oid in new.into_iter().rev().take(10) {
-            show_commit_oneline(&repo, oid)?;
+            show_commit_oneline(repo, oid)?;
         }
         let args = match range.as_ref() {
             Some(r) => format!(" {}", r),
@@ -245,21 +245,21 @@ fn branch(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
 
 fn next(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
     let mut last = None;
-    walk_new(&repo, range.as_ref(), |oid| last = Some(oid))?;
+    walk_new(repo, range.as_ref(), |oid| last = Some(oid))?;
     match last {
-        Some(oid) => show_commit_with_diffstat(&repo, oid)?,
+        Some(oid) => show_commit_with_diffstat(repo, oid)?,
         None => println!("Everything looks good!"),
     }
     Ok(())
 }
 
 fn list(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
-    walk_new(&repo, range.as_ref(), |oid| println!("{}", oid))
+    walk_new(repo, range.as_ref(), |oid| println!("{}", oid))
 }
 
 fn show(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
     let oid = repo.revparse_single(revspec)?.peel_to_commit()?.id();
-    let status = lookup(&repo, oid)?;
+    let status = lookup(repo, oid)?;
     println!("{} {} {:?}", revspec, oid, status);
     Ok(())
 }
@@ -288,7 +288,7 @@ impl GitlabConfig {
         Ok(GitlabConfig {
             host: config
                 .get_string("gitlab.url")
-                .unwrap_or("gitlab.com".into()),
+                .unwrap_or_else(|_| "gitlab.com".into()),
             project_id: ProjectId::new(config.get_i64("gitlab.projectId")? as u64),
             token: config.get_string("gitlab.privateToken")?,
         })
@@ -323,7 +323,7 @@ fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
     let vers = db.get_versions(&mr).collect::<anyhow::Result<Vec<_>>>()?;
     let n_vers = vers.len();
     for (i, version) in vers.into_iter().enumerate() {
-        print_version(&repo, version, i + 1 == n_vers)?;
+        print_version(repo, version, i + 1 == n_vers)?;
     }
     Ok(())
 }
@@ -340,7 +340,7 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
         let vers = db.get_versions(&mr).collect::<anyhow::Result<Vec<_>>>()?;
         let n_vers = vers.len();
         for (i, version) in vers.into_iter().enumerate() {
-            print_version(&repo, version, i + 1 == n_vers)?;
+            print_version(repo, version, i + 1 == n_vers)?;
         }
         println!();
     }
@@ -348,8 +348,8 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
 }
 
 fn similar(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
-    let commit = repo.revparse_single(&revspec)?.peel_to_commit()?;
-    for (oid, x) in similiar_commits(&repo, &commit)?.into_iter().take(10) {
+    let commit = repo.revparse_single(revspec)?.peel_to_commit()?;
+    for (oid, x) in similiar_commits(repo, &commit)?.into_iter().take(10) {
         println!("{} (similarity: {:.02}%)", oid, x.score() * 100.);
     }
     Ok(())
@@ -426,7 +426,7 @@ fn count_reviewed(repo: &Repository, version: VersionInfo) -> anyhow::Result<(us
     walk_all.push_range(&range)?;
     let n_total = walk_all.count();
     let mut n_unreviewed = 0;
-    walk_new(&repo, Some(&range), |_| {
+    walk_new(repo, Some(&range), |_| {
         n_unreviewed += 1;
     })?;
     Ok((n_unreviewed, n_total))
@@ -457,7 +457,7 @@ fn print_mr(me: &str, mr: &MergeRequest) {
     println!("    {}", &mr.title);
 
     if let Some(desc) = mr.description.as_ref() {
-        if desc != "" {
+        if !desc.is_empty() {
             println!();
             for line in desc.lines() {
                 println!("    {}", line);
