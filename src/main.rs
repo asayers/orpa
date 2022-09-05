@@ -103,7 +103,13 @@ pub fn get_idx(repo: &Repository) -> anyhow::Result<&LineIdx> {
 }
 
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive(tracing_subscriber::filter::LevelFilter::WARN.into()),
+        )
+        .with_writer(std::io::stderr)
+        .init();
     let repo = Repository::open_from_env()?;
     pager::Pager::with_pager("less -FRSX").setup();
     match OPTS.cmd.clone() {
