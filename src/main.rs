@@ -183,18 +183,20 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
         for (mr, n_unreviewed) in visible_mrs.iter().take(10) {
             if mr.assignees.iter().flatten().any(|x| x.username == me) {
                 println!(
-                    "  {}{:<6} {} ({} unreviewed)",
+                    "  {}{:<6} {}  ({}) ({} unreviewed)",
                     Paint::yellow("!").bold(),
                     Paint::yellow(mr.iid.value()).bold(),
                     Paint::new(&mr.title).bold(),
+                    Paint::new(&mr.author.username).italic(),
                     Paint::new(n_unreviewed),
                 );
             } else {
                 println!(
-                    "  {}{:<6} {}",
+                    "  {}{:<6} {}  ({})",
                     Paint::yellow("!"),
                     Paint::yellow(mr.iid.value()),
                     &mr.title,
+                    Paint::new(&mr.author.username).italic(),
                 );
             }
         }
