@@ -30,8 +30,8 @@ pub struct Opts {
 }
 #[derive(Parser, Debug, Clone)]
 pub enum Cmd {
-    /// Summarize the review status
-    Status {
+    /// Summarize the review status of a branch
+    Branch {
         range: Option<String>,
     },
     /// Inspect the oldest unreviewed commit
@@ -107,8 +107,8 @@ fn main() -> anyhow::Result<()> {
     let repo = Repository::open_from_env()?;
     pager::Pager::with_pager("less -FRSX").setup();
     match OPTS.cmd.clone() {
-        None => summary(&repo, None),
-        Some(Cmd::Status { range }) => summary(&repo, range),
+        None => summary(&repo),
+        Some(Cmd::Branch { range }) => branch(&repo, range),
         Some(Cmd::Next { range }) => next(&repo, range),
         Some(Cmd::List { range }) => list(&repo, range),
         Some(Cmd::Show { revspec }) => show(&repo, &revspec),
@@ -136,34 +136,7 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
-    let mut new = vec![];
-    walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
-    let n_new = new.len();
-    let current = range.as_ref().map_or("Current branch", |x| x.as_str());
-    if n_new == 0 {
-        println!("{}: no unreviewed commits", current);
-    } else {
-        println!("{}: The following commits are awaiting review:\n", current);
-        for oid in new.into_iter().rev().take(10) {
-            show_commit_oneline(&repo, oid)?;
-        }
-        let args = match range.as_ref() {
-            Some(r) => format!(" {}", r),
-            None => "".into(),
-        };
-        if n_new > 10 {
-            println!(
-                "  ...and {} more (use \"orpa list{}\" to see them)",
-                n_new - 10,
-                args,
-            );
-        }
-        if n_new > 20 {
-            println!("\nHint: That's a lot of unreviewed commits! You can skip old\nones by setting a checkpoint:    orpa checkpoint <oid>");
-        }
-    }
-
+fn summary(repo: &Repository) -> anyhow::Result<()> {
     let db = mr_db::Db::open(&db_path(repo))?;
     if let Ok(mrs) = cached_mrs(repo) {
         let config = repo.config()?;
@@ -199,7 +172,7 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
         }
 
         if visible_mrs.len() > 0 {
-            println!("\nMerge requests with unreviewed commits:\n");
+            println!("Merge requests with unreviewed commits:\n");
         }
         for (mr, n_unreviewed) in visible_mrs.iter().take(10) {
             if mr.assignees.iter().flatten().any(|x| x.username == me) {
@@ -227,6 +200,36 @@ fn summary(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
         }
         if visible_mrs.len() > 0 {
             println!("\nUse \"orpa mr <id>\" to see the full MR information");
+        }
+    }
+    Ok(())
+}
+
+fn branch(repo: &Repository, range: Option<String>) -> anyhow::Result<()> {
+    let mut new = vec![];
+    walk_new(&repo, range.as_ref(), |oid| new.push(oid))?;
+    let n_new = new.len();
+    let current = range.as_ref().map_or("Current branch", |x| x.as_str());
+    if n_new == 0 {
+        println!("{}: no unreviewed commits", current);
+    } else {
+        println!("{}: The following commits are awaiting review:\n", current);
+        for oid in new.into_iter().rev().take(10) {
+            show_commit_oneline(&repo, oid)?;
+        }
+        let args = match range.as_ref() {
+            Some(r) => format!(" {}", r),
+            None => "".into(),
+        };
+        if n_new > 10 {
+            println!(
+                "  ...and {} more (use \"orpa list{}\" to see them)",
+                n_new - 10,
+                args,
+            );
+        }
+        if n_new > 20 {
+            println!("\nHint: That's a lot of unreviewed commits! You can skip old\nones by setting a checkpoint:    orpa checkpoint <oid>");
         }
     }
     Ok(())
