@@ -298,7 +298,7 @@ pub fn walk_new(
 
 pub fn time_to_chrono(time: Time) -> chrono::NaiveDateTime {
     // FIXME: Include timezone
-    NaiveDateTime::from_timestamp(time.seconds(), 0)
+    NaiveDateTime::from_timestamp_opt(time.seconds(), 0).unwrap()
 }
 
 pub fn show_commit_oneline(repo: &Repository, oid: Oid) -> anyhow::Result<()> {
