@@ -111,7 +111,6 @@ fn main() -> anyhow::Result<()> {
         .with_writer(std::io::stderr)
         .init();
     let repo = Repository::open_from_env()?;
-    pager::Pager::with_pager("less -FRSX").setup();
     match OPTS.cmd.clone() {
         None => summary(&repo),
         Some(Cmd::Branch { range }) => branch(&repo, range),
@@ -311,6 +310,7 @@ fn cached_mrs(repo: &Repository) -> anyhow::Result<Vec<MergeRequest>> {
 }
 
 fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
+    pager::Pager::with_pager("less -FRSX").setup();
     let target = target.trim_matches(|c: char| !c.is_numeric());
     let path = db_path(repo).join("merge_requests").join(target);
     let mr: MergeRequest = serde_json::from_reader(File::open(path)?)?;
@@ -329,6 +329,7 @@ fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
 }
 
 fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
+    pager::Pager::with_pager("less -FRSX").setup();
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
     let db = mr_db::Db::open(&db_path(repo))?;
