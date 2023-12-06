@@ -133,6 +133,12 @@ fn update_versions(
                 warn!("Changed existing version! Was {prev}, now {info}");
             }
         } else {
+            let ref_name = format!("refs/orpa/{}_{}/{}", mr_iid, mr.source_branch, info.version);
+            let reflog_msg = format!("orpa: creating ref for !{} {}", mr_iid, info.version);
+            match repo.reference(&ref_name, info.head, false, &reflog_msg) {
+                Ok(_) => info!("Created ref {ref_name}"),
+                Err(e) => error!("Couldn't create ref {ref_name}: {e}"),
+            }
             println!("Inserted {info}");
         }
     }
