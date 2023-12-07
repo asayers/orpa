@@ -10,7 +10,9 @@ use clap::Parser;
 use git2::{Oid, Repository};
 use gitlab::{MergeRequest, MergeRequestState, ProjectId};
 use once_cell::sync::{Lazy, OnceCell};
+use std::io::Write;
 use std::{fs::File, path::PathBuf};
+use tabwriter::TabWriter;
 use tracing::*;
 use yansi::Paint;
 
@@ -180,26 +182,30 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
         if !visible_mrs.is_empty() {
             println!("Merge requests with unreviewed commits:\n");
         }
+        let mut tw = TabWriter::new(std::io::stdout()).ansi(true);
         for (mr, n_unreviewed) in visible_mrs.iter().take(CUTOFF) {
             if mr.assignees.iter().flatten().any(|x| x.username == me) {
-                println!(
-                    "  {}{:<6} {}  ({}) ({} unreviewed)",
+                writeln!(
+                    tw,
+                    "  {}{}\t{}\t({})\t({} unreviewed)",
                     Paint::yellow("!").bold(),
                     Paint::yellow(mr.iid.value()).bold(),
                     Paint::new(&mr.title).bold(),
                     Paint::new(&mr.author.username).italic(),
                     Paint::new(n_unreviewed),
-                );
+                )?;
             } else {
-                println!(
-                    "  {}{:<6} {}  ({})",
+                writeln!(
+                    tw,
+                    "  {}{}\t{}\t({})",
                     Paint::yellow("!"),
                     Paint::yellow(mr.iid.value()),
                     &mr.title,
                     Paint::new(&mr.author.username).italic(),
-                );
+                )?;
             }
         }
+        tw.flush()?;
         if visible_mrs.len() > CUTOFF {
             println!(
                 "...and {} more (use \"orpa mrs\" to see them)",
