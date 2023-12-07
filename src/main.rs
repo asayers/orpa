@@ -148,14 +148,6 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
     if let Ok(mrs) = cached_mrs(repo) {
         let config = repo.config()?;
         let me = config.get_string("gitlab.username")?;
-        let is_mr_interesting = |mr: &MergeRequest| {
-            mr.assignee
-                .iter()
-                .chain(mr.assignees.iter().flatten())
-                .chain(mr.reviewers.iter().flatten())
-                .any(|x| x.username == me)
-            // TODO: Or, we've reviewed it
-        };
 
         let mut visible_mrs = vec![];
         let mut n_hidden = 0;
@@ -175,9 +167,17 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 walk_new(repo, Some(&range), |_| {
                     n_unreviewed += 1;
                 })?;
-                if n_unreviewed > 0 {
-                    visible_mrs.push((mr, n_unreviewed));
+                if n_unreviewed == 0 {
+                    return Ok(());
                 }
+
+                // TODO: Or, we've reviewed it
+                let is_interesting = mr.assignee
+                    .iter()
+                    .chain(mr.assignees.iter().flatten())
+                    .chain(mr.reviewers.iter().flatten())
+                    .any(|x| x.username == me);
+                visible_mrs.push((mr, n_unreviewed, is_interesting));
                 anyhow::Ok(())
             };
             match f() {
@@ -194,9 +194,9 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
             println!("Merge requests with unreviewed commits:\n");
         }
         let mut tw = TabWriter::new(std::io::stdout()).ansi(true);
-        for (mr, n_unreviewed) in visible_mrs {
+        for (mr, n_unreviewed, is_interesting) in visible_mrs {
             let when = timeago::Formatter::new().convert_chrono(mr.updated_at, chrono::Utc::now());
-            if is_mr_interesting(mr) {
+            if is_interesting {
                 writeln!(
                     tw,
                     "  {}{}\t{}\t{}\t{}\t({} unreviewed)",
