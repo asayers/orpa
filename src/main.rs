@@ -148,6 +148,14 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
     if let Ok(mrs) = cached_mrs(repo) {
         let config = repo.config()?;
         let me = config.get_string("gitlab.username")?;
+        let is_mr_interesting = |mr: &MergeRequest| {
+            mr.assignee
+                .iter()
+                .chain(mr.assignees.iter().flatten())
+                .chain(mr.reviewers.iter().flatten())
+                .any(|x| x.username == me)
+            // TODO: Or, we've reviewed it
+        };
 
         let mut visible_mrs = vec![];
         for mr in mrs
@@ -184,7 +192,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
         }
         let mut tw = TabWriter::new(std::io::stdout()).ansi(true);
         for (mr, n_unreviewed) in visible_mrs.iter().take(CUTOFF) {
-            if mr.assignees.iter().flatten().any(|x| x.username == me) {
+            if is_mr_interesting(mr) {
                 writeln!(
                     tw,
                     "  {}{}\t{}\t({})\t({} unreviewed)",
