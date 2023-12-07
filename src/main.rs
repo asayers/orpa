@@ -158,10 +158,14 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
         };
 
         let mut visible_mrs = vec![];
-        for mr in mrs
-            .iter()
-            .filter(|mr| !(mr.draft || mr.author.username == me))
-        {
+        let mut n_hidden = 0;
+        for mr in mrs.iter().filter(|mr| mr.author.username != me) {
+            let too_old = chrono::Utc::now() - mr.updated_at > chrono::Duration::weeks(13);
+            let too_many = visible_mrs.len() >= 20;
+            if too_old || too_many {
+                n_hidden += 1;
+                continue;
+            }
             let mut f = || {
                 let latest_rev = db
                     .get_versions(mr)
@@ -185,13 +189,13 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 }
             }
         }
+        let all_clear = visible_mrs.is_empty();
 
-        const CUTOFF: usize = 20;
-        if !visible_mrs.is_empty() {
+        if !all_clear {
             println!("Merge requests with unreviewed commits:\n");
         }
         let mut tw = TabWriter::new(std::io::stdout()).ansi(true);
-        for (mr, n_unreviewed) in visible_mrs.iter().take(CUTOFF) {
+        for (mr, n_unreviewed) in visible_mrs {
             if is_mr_interesting(mr) {
                 writeln!(
                     tw,
@@ -214,13 +218,10 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
             }
         }
         tw.flush()?;
-        if visible_mrs.len() > CUTOFF {
-            println!(
-                "...and {} more (use \"orpa mrs\" to see them)",
-                visible_mrs.len() - CUTOFF,
-            );
+        if n_hidden > 0 {
+            println!("...and {n_hidden} more (use \"orpa mrs\" to see them)");
         }
-        if !visible_mrs.is_empty() {
+        if !all_clear {
             println!("\nUse \"orpa mr <id>\" to see the full MR information");
         }
     }
