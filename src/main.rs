@@ -150,7 +150,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
         let mut visible_mrs = vec![];
         for mr in mrs
             .iter()
-            .filter(|mr| !(mr.work_in_progress || mr.author.username == me))
+            .filter(|mr| !(mr.draft || mr.author.username == me))
         {
             let mut f = || {
                 let latest_rev = db
@@ -334,7 +334,7 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
     let me = config.get_string("gitlab.username")?;
     let db = mr_db::Db::open(&db_path(repo))?;
     let mut mrs = cached_mrs(repo)?;
-    mrs.retain(|mr| include_all || (!mr.work_in_progress && mr.author.username != me));
+    mrs.retain(|mr| include_all || (!mr.draft && mr.author.username != me));
     for mr in mrs {
         print_mr(&me, &mr);
         println!();
