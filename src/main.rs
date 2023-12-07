@@ -176,10 +176,11 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
             }
         }
 
+        const CUTOFF: usize = 20;
         if !visible_mrs.is_empty() {
             println!("Merge requests with unreviewed commits:\n");
         }
-        for (mr, n_unreviewed) in visible_mrs.iter().take(10) {
+        for (mr, n_unreviewed) in visible_mrs.iter().take(CUTOFF) {
             if mr.assignees.iter().flatten().any(|x| x.username == me) {
                 println!(
                     "  {}{:<6} {}  ({}) ({} unreviewed)",
@@ -199,10 +200,10 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 );
             }
         }
-        if visible_mrs.len() > 10 {
+        if visible_mrs.len() > CUTOFF {
             println!(
                 "...and {} more (use \"orpa mrs\" to see them)",
-                visible_mrs.len() - 10,
+                visible_mrs.len() - CUTOFF,
             );
         }
         if !visible_mrs.is_empty() {
