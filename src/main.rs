@@ -196,24 +196,27 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
         }
         let mut tw = TabWriter::new(std::io::stdout()).ansi(true);
         for (mr, n_unreviewed) in visible_mrs {
+            let when = timeago::Formatter::new().convert_chrono(mr.updated_at, chrono::Utc::now());
             if is_mr_interesting(mr) {
                 writeln!(
                     tw,
-                    "  {}{}\t{}\t({})\t({} unreviewed)",
+                    "  {}{}\t{}\t{}\t{}\t({} unreviewed)",
                     Paint::yellow("!").bold(),
                     Paint::yellow(mr.iid.value()).bold(),
+                    Paint::blue(&when).bold(),
+                    Paint::green(&mr.author.username).bold(),
                     Paint::new(&mr.title).bold(),
-                    Paint::new(&mr.author.username).italic(),
                     Paint::new(n_unreviewed),
                 )?;
             } else {
                 writeln!(
                     tw,
-                    "  {}{}\t{}\t({})",
+                    "  {}{}\t{}\t{}\t{}",
                     Paint::yellow("!"),
                     Paint::yellow(mr.iid.value()),
+                    Paint::blue(&when),
+                    Paint::green(&mr.author.username).italic(),
                     &mr.title,
-                    Paint::new(&mr.author.username).italic(),
                 )?;
             }
         }
