@@ -47,7 +47,7 @@ impl Db {
         mr: &MergeRequest,
     ) -> impl Iterator<Item = anyhow::Result<VersionInfo>> {
         let mr_id = mr.iid.value().to_le_bytes();
-        let existing = self.0.scan_prefix(&mr_id);
+        let existing = self.0.scan_prefix(mr_id);
         existing.map(|x| {
             let (k, v) = x?;
             let version = Version(k[8]);

@@ -157,7 +157,7 @@ pub struct Line(pub [u8; 20]);
 
 impl LineIdx {
     pub fn commits_containing(&self, line: Line) -> anyhow::Result<Vec<Oid>> {
-        let bytes = self.reverse.get(&line.0)?;
+        let bytes = self.reverse.get(line.0)?;
         let bytes = bytes.as_deref().unwrap_or(&[][..]);
         bytes
             .chunks(20)
@@ -176,7 +176,7 @@ impl LineIdx {
         let forward = db.open_tree("forward")?;
         let reverse = db.open_tree("reverse")?;
         fn append(_: &[u8], existing: Option<&[u8]>, incoming: &[u8]) -> Option<Vec<u8>> {
-            let mut ret = existing.map(|x| x.to_vec()).unwrap_or_else(Vec::new);
+            let mut ret = existing.unwrap_or_default().to_vec();
             ret.extend_from_slice(incoming);
             Some(ret)
         }
@@ -322,7 +322,7 @@ pub fn commit_diff<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<Diff<
 }
 
 /// The SHA1 of the textual diff of a commit against its first parent
-pub fn commit_diff_digest<'a>(repo: &'a Repository, c: &Commit) -> anyhow::Result<Line> {
+pub fn commit_diff_digest(repo: &Repository, c: &Commit) -> anyhow::Result<Line> {
     let diff = commit_lines!(repo, c).join("\n");
     Ok(Line(Sha1::digest(diff).into()))
 }
