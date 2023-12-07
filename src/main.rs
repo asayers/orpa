@@ -9,8 +9,9 @@ use anyhow::anyhow;
 use clap::Parser;
 use git2::{Oid, Repository};
 use gitlab::{MergeRequest, MergeRequestState, ProjectId};
+use globset::GlobSet;
 use once_cell::sync::{Lazy, OnceCell};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::{fs::File, path::PathBuf};
 use tabwriter::TabWriter;
 use tracing::*;
@@ -143,11 +144,24 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+fn load_watchlist(repo: &Repository) -> anyhow::Result<GlobSet> {
+    use globset::*;
+    let mut watchlist = GlobSetBuilder::new();
+    if let Ok(file) = File::open(db_path(repo).join("watchlist")) {
+        for line in BufReader::new(file).lines() {
+            watchlist.add(Glob::new(&line?)?);
+        }
+    }
+    Ok(watchlist.build()?)
+}
+
 fn summary(repo: &Repository) -> anyhow::Result<()> {
     let db = mr_db::Db::open(&db_path(repo))?;
     if let Ok(mrs) = cached_mrs(repo) {
         let config = repo.config()?;
         let me = config.get_string("gitlab.username")?;
+
+        let watchlist = load_watchlist(repo)?;
 
         let mut visible_mrs = vec![];
         let mut n_hidden = 0;
