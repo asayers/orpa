@@ -42,6 +42,23 @@ impl Db {
         Ok(Db(sled::open(path)?))
     }
 
+    pub fn latest_version(&self, mr: &MergeRequest) -> anyhow::Result<Option<VersionInfo>> {
+        let mr_id = mr.iid.value().to_le_bytes();
+        let existing = self.0.scan_prefix(mr_id);
+        let Some(x) = existing.last() else {
+            return Ok(None);
+        };
+        let (k, v) = x?;
+        let version = Version(k[8]);
+        let base = Oid::from_bytes(&v[..20])?;
+        let head = Oid::from_bytes(&v[20..])?;
+        Ok(Some(VersionInfo {
+            version,
+            base,
+            head,
+        }))
+    }
+
     pub fn get_versions(
         &self,
         mr: &MergeRequest,

@@ -168,9 +168,8 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
             }
             let mut f = || {
                 let latest_rev = db
-                    .get_versions(mr)
-                    .last()
-                    .ok_or_else(|| anyhow!("Can't find any versions"))??;
+                    .latest_version(mr)?
+                    .ok_or_else(|| anyhow!("Can't find any versions"))?;
                 let range = format!("{}..{}", latest_rev.base, latest_rev.head);
                 let mut n_unreviewed = 0;
                 walk_new(repo, Some(&range), |_| {
