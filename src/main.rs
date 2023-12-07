@@ -11,7 +11,9 @@ use git2::{Oid, Repository};
 use gitlab::{MergeRequest, MergeRequestState, ProjectId};
 use globset::GlobSet;
 use once_cell::sync::{Lazy, OnceCell};
+use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::{fs::File, path::PathBuf};
 use tabwriter::TabWriter;
 use tracing::*;
@@ -185,12 +187,16 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                     return Ok(());
                 }
 
-                // TODO: Or, we've reviewed it
-                let is_interesting = mr.assignee
+                let assigned = mr
+                    .assignee
                     .iter()
                     .chain(mr.assignees.iter().flatten())
                     .chain(mr.reviewers.iter().flatten())
                     .any(|x| x.username == me);
+                let watchlist_hit = mr_paths(repo, latest_rev)?
+                    .iter()
+                    .any(|path| watchlist.is_match(path));
+                let is_interesting = assigned || watchlist_hit;
                 visible_mrs.push((mr, n_unreviewed, is_interesting));
                 anyhow::Ok(())
             };
@@ -509,4 +515,18 @@ fn print_mr(me: &str, mr: &MergeRequest) {
             println!("    Assigned-to: {}", s);
         }
     }
+}
+
+/// Paths changed by an MR
+fn mr_paths(repo: &Repository, mr: VersionInfo) -> anyhow::Result<Vec<PathBuf>> {
+    let base = repo.find_commit(mr.base)?.tree()?;
+    let head = repo.find_commit(mr.head)?.tree()?;
+    let diff = repo.diff_tree_to_tree(Some(&base), Some(&head), None)?;
+    let mut paths = HashSet::<&Path>::default();
+    for delta in diff.deltas() {
+        if let Some(path) = delta.new_file().path() {
+            paths.insert(path);
+        }
+    }
+    Ok(paths.into_iter().map(|x| x.to_path_buf()).collect())
 }
