@@ -235,7 +235,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
             } else {
                 writeln!(
                     tw,
-                    "  {}{}\t{}\t{}\t{}",
+                    "  {}{}\t{}\t{}\t{}\t",
                     Paint::yellow("!"),
                     Paint::yellow(mr.iid.value()),
                     Paint::blue(&when),
