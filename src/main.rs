@@ -192,7 +192,12 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 let watchlist_hit = mr_paths(repo, latest_rev)?
                     .iter()
                     .any(|path| watchlist.is_match(path));
-                let is_interesting = assigned || watchlist_hit;
+                let partially_reviewed = db
+                    .get_versions(mr)
+                    .flat_map(|ver| version_stats(repo, ver?))
+                    .any(|stats| stats[Status::Reviewed] > 0);
+                let is_interesting = assigned || watchlist_hit || partially_reviewed;
+
                 visible_mrs.push((mr, n_unreviewed, is_interesting));
                 anyhow::Ok(())
             };
