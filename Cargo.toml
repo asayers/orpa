@@ -12,6 +12,7 @@ repository = "https://github.com/asayers/orpa"
 anyhow = "1.0.75"
 chrono = "0.4.31"
 clap = { version = "3.2.25", features = ["derive"] }
+enum-map = "2.7.3"
 git2 = "0.15.0"
 gitlab = "0.1606.0"
 globset = "0.4.14"

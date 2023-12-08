@@ -1,6 +1,8 @@
+use crate::mr_db::VersionInfo;
 use crate::{get_idx, OPTS};
 use anyhow::anyhow;
 use chrono::NaiveDateTime;
+use enum_map::{Enum, EnumMap};
 use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree};
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
@@ -296,6 +298,33 @@ pub fn walk_new(
     Ok(())
 }
 
+pub fn walk_version(
+    repo: &Repository,
+    ver: VersionInfo,
+) -> anyhow::Result<impl Iterator<Item = anyhow::Result<(Oid, Status)>> + '_> {
+    let mut walk = repo.revwalk()?;
+    walk.push_range(&format!("{}..{}", ver.base, ver.head))?;
+    Ok(walk
+        .map(move |oid| {
+            let oid = oid?;
+            let status = lookup(repo, oid)?;
+            Ok((oid, status))
+        })
+        .take_while(|x| !matches!(x, Ok((_, Status::Checkpoint)))))
+}
+
+pub fn version_stats(
+    repo: &Repository,
+    ver: VersionInfo,
+) -> anyhow::Result<EnumMap<Status, usize>> {
+    let mut stats = EnumMap::default();
+    for x in walk_version(repo, ver)? {
+        let (_, status) = x?;
+        stats[status] += 1;
+    }
+    Ok(stats)
+}
+
 pub fn time_to_chrono(time: Time) -> chrono::NaiveDateTime {
     // FIXME: Include timezone
     NaiveDateTime::from_timestamp_opt(time.seconds(), 0).unwrap()
@@ -357,7 +386,7 @@ pub fn show_commit_with_diffstat(repo: &Repository, oid: Oid) -> anyhow::Result<
     Ok(())
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Enum)]
 pub enum Status {
     Reviewed,
     Checkpoint,
