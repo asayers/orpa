@@ -168,12 +168,6 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
         let mut visible_mrs = vec![];
         let mut n_hidden = 0;
         for mr in mrs.iter().filter(|mr| mr.author.username != me) {
-            let too_old = chrono::Utc::now() - mr.updated_at > chrono::Duration::weeks(13);
-            let too_many = visible_mrs.len() >= 20;
-            if too_old || too_many {
-                n_hidden += 1;
-                continue;
-            }
             let mut f = || {
                 let latest_rev = db
                     .latest_version(mr)?
@@ -198,7 +192,17 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                     .any(|stats| stats[Status::Reviewed] > 0);
                 let is_interesting = assigned || watchlist_hit || partially_reviewed;
 
-                visible_mrs.push((mr, n_unreviewed, is_interesting));
+                if is_interesting {
+                    visible_mrs.push((mr, n_unreviewed, is_interesting));
+                } else {
+                    let too_old = chrono::Utc::now() - mr.updated_at > chrono::Duration::weeks(13);
+                    let too_many = visible_mrs.len() >= 20;
+                    if too_old || too_many {
+                        n_hidden += 1;
+                    } else {
+                        visible_mrs.push((mr, n_unreviewed, is_interesting));
+                    }
+                }
                 anyhow::Ok(())
             };
             match f() {
