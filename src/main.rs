@@ -500,12 +500,10 @@ fn print_mr(me: &str, mr: &MergeRequest) {
     println!();
     println!("    {}", &mr.title);
 
-    if let Some(desc) = mr.description.as_ref() {
-        if !desc.is_empty() {
-            println!();
-            for line in desc.lines() {
-                println!("    {}", line);
-            }
+    if let Some(desc) = mr.description.as_ref().filter(|x| !x.is_empty()) {
+        println!();
+        for line in textwrap::wrap(desc, 96) {
+            println!("    {}", line);
         }
     }
 
