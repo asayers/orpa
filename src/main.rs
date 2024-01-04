@@ -167,7 +167,19 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
 
         let mut visible_mrs = vec![];
         let mut n_hidden = 0;
-        for mr in mrs.iter().filter(|mr| mr.author.username != me) {
+        let mut own_mrs = vec![];
+        let mut n_own_hidden = 0;
+        for mr in &mrs {
+            if mr.author.username == me {
+                let too_old = chrono::Utc::now() - mr.updated_at > chrono::Duration::weeks(13);
+                let too_many = own_mrs.len() >= 10;
+                if too_old || too_many {
+                    n_own_hidden += 1;
+                } else {
+                    own_mrs.push(mr);
+                }
+                continue;
+            }
             let mut f = || {
                 let latest_rev = db
                     .latest_version(mr)?
@@ -249,7 +261,32 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
             println!("...and {n_hidden} more (use \"orpa mrs\" to see them)");
         }
 
-        if !visible_mrs.is_empty() {
+        if !visible_mrs.is_empty() && !own_mrs.is_empty() {
+            println!();
+        }
+        if !own_mrs.is_empty() {
+            println!("Your own MRs:");
+            println!();
+        }
+        let mut tw = TabWriter::new(std::io::stdout()).ansi(true);
+        for mr in &own_mrs {
+            let when = timeago::Formatter::new().convert_chrono(mr.updated_at, chrono::Utc::now());
+            writeln!(
+                tw,
+                "  {}{}\t{}\t{}\t{}\t",
+                Paint::yellow("!"),
+                Paint::yellow(mr.iid.value()),
+                Paint::blue(&when),
+                Paint::green(&mr.author.username).italic(),
+                &mr.title,
+            )?;
+        }
+        tw.flush()?;
+        if n_own_hidden > 0 {
+            println!("...and {n_own_hidden} more (use \"orpa mrs\" to see them)");
+        }
+
+        if !visible_mrs.is_empty() || !own_mrs.is_empty() {
             println!();
             println!("Use \"orpa mr <id>\" to see the full MR information");
         }
