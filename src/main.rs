@@ -196,7 +196,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                     visible_mrs.push((mr, n_unreviewed, is_interesting));
                 } else {
                     let too_old = chrono::Utc::now() - mr.updated_at > chrono::Duration::weeks(13);
-                    let too_many = visible_mrs.len() >= 20;
+                    let too_many = visible_mrs.len() >= 10;
                     if too_old || too_many {
                         n_hidden += 1;
                     } else {
@@ -213,15 +213,15 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 }
             }
         }
-        let all_clear = visible_mrs.is_empty();
 
-        if !all_clear {
-            println!("Merge requests with unreviewed commits:\n");
+        if !visible_mrs.is_empty() {
+            println!("Merge requests with unreviewed commits:");
+            println!();
         }
         let mut tw = TabWriter::new(std::io::stdout()).ansi(true);
-        for (mr, n_unreviewed, is_interesting) in visible_mrs {
+        for (mr, n_unreviewed, is_interesting) in &visible_mrs {
             let when = timeago::Formatter::new().convert_chrono(mr.updated_at, chrono::Utc::now());
-            if is_interesting {
+            if *is_interesting {
                 writeln!(
                     tw,
                     "  {}{}\t{}\t{}\t{}\t({} unreviewed)",
@@ -248,8 +248,10 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
         if n_hidden > 0 {
             println!("...and {n_hidden} more (use \"orpa mrs\" to see them)");
         }
-        if !all_clear {
-            println!("\nUse \"orpa mr <id>\" to see the full MR information");
+
+        if !visible_mrs.is_empty() {
+            println!();
+            println!("Use \"orpa mr <id>\" to see the full MR information");
         }
     }
     Ok(())
