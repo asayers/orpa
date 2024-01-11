@@ -115,6 +115,9 @@ fn main() -> anyhow::Result<()> {
         )
         .with_writer(std::io::stderr)
         .init();
+    if !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        Paint::disable();
+    }
     let repo = Repository::open_from_env()?;
     match OPTS.cmd.clone() {
         None => summary(&repo),
