@@ -7,7 +7,7 @@ use crate::mr_db::{Version, VersionInfo};
 use crate::review_db::*;
 use anyhow::anyhow;
 use clap::Parser;
-use git2::{Oid, Repository};
+use git2::{Commit, Oid, Repository};
 use gitlab::{MergeRequest, MergeRequestState, ProjectId};
 use globset::GlobSet;
 use once_cell::sync::{Lazy, OnceCell};
@@ -406,9 +406,13 @@ fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
     print_mr(&me, &mr);
     println!();
     let vers = db.get_versions(&mr).collect::<anyhow::Result<Vec<_>>>()?;
-    let n_vers = vers.len();
-    for (i, version) in vers.into_iter().enumerate() {
-        print_version(repo, version, i + 1 == n_vers)?;
+    for version in &vers {
+        print_version(repo, *version)?;
+    }
+    println!();
+    if let Some((base, head)) = vers.last().and_then(|v| resolve_version(repo, *v).ok()) {
+        let diff = repo.diff_tree_to_tree(Some(&base.tree()?), Some(&head.tree()?), None)?;
+        print_diff_stat(diff)?;
     }
     Ok(())
 }
@@ -424,9 +428,13 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
         print_mr(&me, &mr);
         println!();
         let vers = db.get_versions(&mr).collect::<anyhow::Result<Vec<_>>>()?;
-        let n_vers = vers.len();
-        for (i, version) in vers.into_iter().enumerate() {
-            print_version(repo, version, i + 1 == n_vers)?;
+        for version in &vers {
+            print_version(repo, *version)?;
+        }
+        println!();
+        if let Some((base, head)) = vers.last().and_then(|v| resolve_version(repo, *v).ok()) {
+            let diff = repo.diff_tree_to_tree(Some(&base.tree()?), Some(&head.tree()?), None)?;
+            print_diff_stat(diff)?;
         }
         println!();
     }
@@ -441,11 +449,14 @@ fn similar(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn print_version(repo: &Repository, version: VersionInfo, is_last: bool) -> anyhow::Result<()> {
-    let (base, head) = match repo
+fn resolve_version(repo: &Repository, version: VersionInfo) -> anyhow::Result<(Commit, Commit)> {
+    Ok(repo
         .find_commit(version.base)
-        .and_then(|x| repo.find_commit(version.head).map(|y| (x, y)))
-    {
+        .and_then(|x| repo.find_commit(version.head).map(|y| (x, y)))?)
+}
+
+fn print_version(repo: &Repository, version: VersionInfo) -> anyhow::Result<()> {
+    let (base, head) = match resolve_version(repo, version) {
         Ok(x) => x,
         Err(_) => {
             let base = &version.base.to_string()[..7];
@@ -480,12 +491,6 @@ fn print_version(repo: &Repository, version: VersionInfo, is_last: bool) -> anyh
         );
     }
     println!();
-
-    if is_last {
-        let diff = repo.diff_tree_to_tree(Some(&base.tree()?), Some(&head.tree()?), None)?;
-        println!();
-        print_diff_stat(diff)?;
-    }
 
     Ok(())
 }
