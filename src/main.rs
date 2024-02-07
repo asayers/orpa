@@ -443,11 +443,44 @@ fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
         print_version(repo, *version)?;
     }
     println!();
-    if let Some((base, head)) = vers.last().and_then(|v| resolve_version(repo, *v).ok()) {
-        let diff = repo.diff_tree_to_tree(Some(&base.tree()?), Some(&head.tree()?), None)?;
-        print_diff_stat(diff)?;
+    if let Some(version) = vers.last() {
+        if let Ok((base, head)) = resolve_version(repo, *version) {
+            let diff = repo.diff_tree_to_tree(Some(&base.tree()?), Some(&head.tree()?), None)?;
+            print_diff_stat(diff)?;
+            println!();
+        }
+
+        let range = format!("{}..{}", version.base, version.head);
+        let mut walk = repo.revwalk()?;
+        walk.push_range(&range)?;
+        walk.set_sorting(git2::Sort::REVERSE)?;
+        for oid in walk {
+            let commit = repo.find_commit(oid?)?;
+            print_commit(commit);
+        }
     }
     Ok(())
+}
+
+fn print_commit(commit: Commit) {
+    println!("{}{}", Paint::yellow("commit "), Paint::yellow(commit.id()));
+    if let Some((name, email)) = commit.author().name().zip(commit.author().email()) {
+        println!("Author: {} <{}>", name, email);
+    }
+    let date = git_time_to_chrono(commit.time());
+    println!("Date:   {}", date);
+    println!();
+    if let Some(msg) = commit.message() {
+        for line in textwrap::wrap(msg, 96) {
+            println!("    {}", line);
+        }
+    }
+}
+
+fn git_time_to_chrono(time: git2::Time) -> chrono::DateTime<chrono::FixedOffset> {
+    let tz = chrono::FixedOffset::east_opt(time.offset_minutes() * 60).unwrap();
+    let date = chrono::DateTime::from_timestamp(time.seconds(), 0).unwrap();
+    date.with_timezone(&tz)
 }
 
 fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
