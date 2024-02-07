@@ -113,7 +113,7 @@ fn update_versions(
         info!("Skipping MR since its head rev hasn't changed");
         return Ok(());
     }
-    let versions = match query_versions(client, config, mr.iid) {
+    let recent_versions = match query_versions(client, config, mr.iid, db) {
         Ok(x) => x,
         Err(e) => {
             error!("Couldn't query the version history: {e}");
@@ -126,7 +126,7 @@ fn update_versions(
             vec![info]
         }
     };
-    for &info in &versions {
+    for &info in &recent_versions {
         let prev = db.insert_version(mr.iid, info)?;
         if let Some(prev) = prev {
             if prev != info {
@@ -142,7 +142,7 @@ fn update_versions(
             println!("Inserted {info}");
         }
     }
-    if let Some(info) = versions.last() {
+    if let Some(info) = recent_versions.last() {
         println!("Updated !{mr_iid} to {}", info.version);
     }
     Ok(())
@@ -176,10 +176,13 @@ fn mr_base<'a>(
 
 /// Get the version history from gitlab.  If this endpoint is available,
 /// it's the best thing to use.
+///
+/// Note that gitlab only tells us the 20 most recent versions.
 fn query_versions(
     client: &reqwest::blocking::Client,
     config: &GitlabConfig,
     mr_iid: MergeRequestInternalId,
+    db: &crate::mr_db::Db,
 ) -> anyhow::Result<Vec<VersionInfo>> {
     info!("Querying for versions");
     let resp: Vec<serde_json::Value> = client
@@ -192,14 +195,45 @@ fn query_versions(
         .header("PRIVATE-TOKEN", &config.token)
         .send()?
         .json()?;
+
+    fn json_to_base(x: &serde_json::Value) -> anyhow::Result<Oid> {
+        x["base_commit_sha"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Bad string"))
+            .and_then(|x| Ok(Oid::from_str(x)?))
+    }
+    fn json_to_head(x: &serde_json::Value) -> anyhow::Result<Oid> {
+        x["head_commit_sha"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Bad string"))
+            .and_then(|x| Ok(Oid::from_str(x)?))
+    }
+
+    let start_at = match resp.first() {
+        Some(first) => {
+            let base = json_to_base(first)?;
+            let head = json_to_head(first)?;
+            db.get_versions(mr_iid)
+                .rev()
+                .filter_map(|x| x.ok())
+                .find(|x| x.head == head && x.base == base)
+                .map(|x| x.version)
+                .or_else(|| {
+                    let latest = db.latest_version(mr_iid).ok()??;
+                    Some(Version(latest.version.0 + 1))
+                })
+                .unwrap_or(Version(0))
+        }
+        None => return Ok(vec![]),
+    };
     resp.into_iter()
         .rev()
         .enumerate()
         .map(|(i, x)| {
             Ok(VersionInfo {
-                version: Version(i as u8),
-                base: Oid::from_str(x["base_commit_sha"].as_str().unwrap())?,
-                head: Oid::from_str(x["head_commit_sha"].as_str().unwrap())?,
+                version: Version(start_at.0 + i as u8),
+                base: json_to_base(&x)?,
+                head: json_to_head(&x)?,
             })
         })
         .collect()
