@@ -168,18 +168,20 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
 
         let watchlist = load_watchlist(repo)?;
 
-        let mut visible_mrs = vec![];
-        let mut n_hidden = 0;
-        let mut own_mrs = vec![];
-        let mut n_own_hidden = 0;
+        let mut interesting = vec![];
+        let mut recent = vec![];
+        let mut drafts = vec![];
+        let mut old = vec![];
+        let mut own_recent = vec![];
+        let mut own_old = vec![];
         for mr in &mrs {
             if mr.author.username == me {
                 let too_old = chrono::Utc::now() - mr.updated_at > chrono::Duration::weeks(13);
-                let too_many = own_mrs.len() >= 10;
+                let too_many = own_recent.len() >= 10;
                 if too_old || too_many {
-                    n_own_hidden += 1;
+                    own_old.push(mr);
                 } else {
-                    own_mrs.push(mr);
+                    own_recent.push(mr);
                 }
                 continue;
             }
@@ -208,14 +210,16 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 let is_interesting = assigned || watchlist_hit || partially_reviewed;
 
                 if is_interesting {
-                    visible_mrs.push((mr, n_unreviewed, is_interesting));
+                    interesting.push((mr, n_unreviewed));
                 } else {
-                    let too_old = chrono::Utc::now() - mr.updated_at > chrono::Duration::weeks(13);
-                    let too_many = visible_mrs.len() >= 10;
+                    let too_old = chrono::Utc::now() - mr.updated_at > chrono::Duration::weeks(5);
+                    let too_many = recent.len() >= 10;
                     if too_old || too_many {
-                        n_hidden += 1;
+                        old.push(mr);
+                    } else if mr.draft {
+                        drafts.push(mr);
                     } else {
-                        visible_mrs.push((mr, n_unreviewed, is_interesting));
+                        recent.push(mr);
                     }
                 }
                 anyhow::Ok(())
@@ -229,50 +233,35 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
             }
         }
 
-        if !visible_mrs.is_empty() {
-            println!("Merge requests with unreviewed commits:");
+        if !interesting.is_empty() {
+            println!("Relevant merge requests:");
             println!();
         }
         let mut tw = TabWriter::new(std::io::stdout()).ansi(true);
-        for (mr, n_unreviewed, is_interesting) in &visible_mrs {
+        for (mr, n_unreviewed) in &interesting {
             let when = timeago::Formatter::new().convert_chrono(mr.updated_at, chrono::Utc::now());
-            if *is_interesting {
-                writeln!(
-                    tw,
-                    "  {}{}\t{}\t{}\t{}\t({} unreviewed)",
-                    Paint::yellow("!").bold(),
-                    Paint::yellow(mr.iid.value()).bold(),
-                    Paint::blue(&when).bold(),
-                    Paint::green(&mr.author.username).bold(),
-                    Paint::new(&mr.title).bold(),
-                    Paint::new(n_unreviewed),
-                )?;
-            } else {
-                writeln!(
-                    tw,
-                    "  {}{}\t{}\t{}\t{}\t",
-                    Paint::yellow("!"),
-                    Paint::yellow(mr.iid.value()),
-                    Paint::blue(&when),
-                    Paint::green(&mr.author.username).italic(),
-                    &mr.title,
-                )?;
-            }
+            writeln!(
+                tw,
+                "  {}{}\t{}\t{}\t{}\t({} left to review)",
+                Paint::yellow("!").bold(),
+                Paint::yellow(mr.iid.value()).bold(),
+                Paint::blue(&when).bold(),
+                Paint::green(&mr.author.username).bold(),
+                Paint::new(&mr.title).bold(),
+                Paint::new(n_unreviewed),
+            )?;
         }
         tw.flush()?;
-        if n_hidden > 0 {
-            println!("...and {n_hidden} more (use \"orpa mrs\" to see them)");
-        }
-
-        if !visible_mrs.is_empty() && !own_mrs.is_empty() {
+        if !interesting.is_empty() {
             println!();
         }
-        if !own_mrs.is_empty() {
-            println!("Your own MRs:");
+
+        if !recent.is_empty() {
+            println!("New merge requests:");
             println!();
         }
         let mut tw = TabWriter::new(std::io::stdout()).ansi(true);
-        for mr in &own_mrs {
+        for mr in &recent {
             let when = timeago::Formatter::new().convert_chrono(mr.updated_at, chrono::Utc::now());
             writeln!(
                 tw,
@@ -285,12 +274,54 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
             )?;
         }
         tw.flush()?;
-        if n_own_hidden > 0 {
-            println!("...and {n_own_hidden} more (use \"orpa mrs\" to see them)");
+        if !recent.is_empty() {
+            println!();
         }
 
-        if !visible_mrs.is_empty() || !own_mrs.is_empty() {
+        if !old.is_empty() {
+            println!("...and {} more (use \"orpa mrs\" to see them)", old.len());
             println!();
+        }
+
+        if !drafts.is_empty() {
+            println!(
+                "({} were hidden because they're marked as drafts)",
+                drafts.len()
+            );
+            println!();
+        }
+
+        if !own_recent.is_empty() {
+            println!("Your own MRs:");
+            println!();
+        }
+        let mut tw = TabWriter::new(std::io::stdout()).ansi(true);
+        for mr in &own_recent {
+            let when = timeago::Formatter::new().convert_chrono(mr.updated_at, chrono::Utc::now());
+            writeln!(
+                tw,
+                "  {}{}\t{}\t{}\t{}\t",
+                Paint::yellow("!"),
+                Paint::yellow(mr.iid.value()),
+                Paint::blue(&when),
+                Paint::green(&mr.author.username).italic(),
+                &mr.title,
+            )?;
+        }
+        tw.flush()?;
+        if !own_recent.is_empty() {
+            println!();
+        }
+
+        if !own_old.is_empty() {
+            println!(
+                "...and {} more (use \"orpa mrs\" to see them)",
+                own_old.len()
+            );
+            println!();
+        }
+
+        if !interesting.is_empty() || !recent.is_empty() || !own_recent.is_empty() {
             println!("Use \"orpa mr <id>\" to see the full MR information");
         }
     }
