@@ -185,7 +185,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
             }
             let mut f = || {
                 let latest_rev = db
-                    .latest_version(mr)?
+                    .latest_version(mr.iid)?
                     .ok_or_else(|| anyhow!("Can't find any versions"))?;
                 let n_unreviewed = version_stats(repo, latest_rev)?[Status::New];
                 if n_unreviewed == 0 {
@@ -202,7 +202,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                     .iter()
                     .any(|path| watchlist.is_match(path));
                 let partially_reviewed = db
-                    .get_versions(mr)
+                    .get_versions(mr.iid)
                     .flat_map(|ver| version_stats(repo, ver?))
                     .any(|stats| stats[Status::Reviewed] > 0);
                 let is_interesting = assigned || watchlist_hit || partially_reviewed;
@@ -405,7 +405,9 @@ fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
     let me = config.get_string("gitlab.username")?;
     print_mr(&me, &mr);
     println!();
-    let vers = db.get_versions(&mr).collect::<anyhow::Result<Vec<_>>>()?;
+    let vers = db
+        .get_versions(mr.iid)
+        .collect::<anyhow::Result<Vec<_>>>()?;
     for version in &vers {
         print_version(repo, *version)?;
     }
@@ -427,7 +429,9 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
     for mr in mrs {
         print_mr(&me, &mr);
         println!();
-        let vers = db.get_versions(&mr).collect::<anyhow::Result<Vec<_>>>()?;
+        let vers = db
+            .get_versions(mr.iid)
+            .collect::<anyhow::Result<Vec<_>>>()?;
         for version in &vers {
             print_version(repo, *version)?;
         }

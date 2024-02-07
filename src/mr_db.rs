@@ -1,5 +1,5 @@
 use git2::Oid;
-use gitlab::MergeRequest;
+use gitlab::MergeRequestInternalId;
 use std::fmt;
 use std::path::Path;
 
@@ -42,8 +42,11 @@ impl Db {
         Ok(Db(sled::open(path)?))
     }
 
-    pub fn latest_version(&self, mr: &MergeRequest) -> anyhow::Result<Option<VersionInfo>> {
-        let mr_id = mr.iid.value().to_le_bytes();
+    pub fn latest_version(
+        &self,
+        mr_id: MergeRequestInternalId,
+    ) -> anyhow::Result<Option<VersionInfo>> {
+        let mr_id = mr_id.value().to_le_bytes();
         let existing = self.0.scan_prefix(mr_id);
         let Some(x) = existing.last() else {
             return Ok(None);
@@ -61,9 +64,9 @@ impl Db {
 
     pub fn get_versions(
         &self,
-        mr: &MergeRequest,
-    ) -> impl Iterator<Item = anyhow::Result<VersionInfo>> {
-        let mr_id = mr.iid.value().to_le_bytes();
+        mr_id: MergeRequestInternalId,
+    ) -> impl Iterator<Item = anyhow::Result<VersionInfo>> + DoubleEndedIterator {
+        let mr_id = mr_id.value().to_le_bytes();
         let existing = self.0.scan_prefix(mr_id);
         existing.map(|x| {
             let (k, v) = x?;
@@ -80,11 +83,11 @@ impl Db {
 
     pub fn insert_version(
         &self,
-        mr_id: u64,
+        mr_id: MergeRequestInternalId,
         info: VersionInfo,
     ) -> anyhow::Result<Option<VersionInfo>> {
         let mut key = [0; 9];
-        key[..8].copy_from_slice(&mr_id.to_le_bytes());
+        key[..8].copy_from_slice(&mr_id.value().to_le_bytes());
         key[8] = info.version.0;
         let mut val = Box::new([0; 40]);
         val[..20].copy_from_slice(info.base.as_bytes());

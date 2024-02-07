@@ -103,7 +103,7 @@ fn update_versions(
     mr: &MergeRequest,
 ) -> anyhow::Result<()> {
     let mr_iid = mr.iid.value();
-    let latest = db.get_versions(mr).last().transpose()?;
+    let latest = db.get_versions(mr.iid).last().transpose()?;
     // We only update the DB if the head has changed.  Technically we
     // should re-check the base each time as well (in case the target
     // branch has changed); however, this means making an API request
@@ -113,7 +113,7 @@ fn update_versions(
         info!("Skipping MR since its head rev hasn't changed");
         return Ok(());
     }
-    let versions = match query_versions(client, config, mr_iid) {
+    let versions = match query_versions(client, config, mr.iid) {
         Ok(x) => x,
         Err(e) => {
             error!("Couldn't query the version history: {e}");
@@ -127,7 +127,7 @@ fn update_versions(
         }
     };
     for &info in &versions {
-        let prev = db.insert_version(mr_iid, info)?;
+        let prev = db.insert_version(mr.iid, info)?;
         if let Some(prev) = prev {
             if prev != info {
                 warn!("Changed existing version! Was {prev}, now {info}");
@@ -179,13 +179,15 @@ fn mr_base<'a>(
 fn query_versions(
     client: &reqwest::blocking::Client,
     config: &GitlabConfig,
-    mr_iid: u64,
+    mr_iid: MergeRequestInternalId,
 ) -> anyhow::Result<Vec<VersionInfo>> {
     info!("Querying for versions");
     let resp: Vec<serde_json::Value> = client
         .get(format!(
             "https://{}/api/v4/projects/{}/merge_requests/{}/versions",
-            config.host, config.project_id, mr_iid,
+            config.host,
+            config.project_id,
+            mr_iid.value(),
         ))
         .header("PRIVATE-TOKEN", &config.token)
         .send()?
