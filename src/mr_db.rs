@@ -65,7 +65,7 @@ impl Db {
     pub fn get_versions(
         &self,
         mr_id: MergeRequestInternalId,
-    ) -> impl Iterator<Item = anyhow::Result<VersionInfo>> + DoubleEndedIterator {
+    ) -> impl DoubleEndedIterator<Item = anyhow::Result<VersionInfo>> {
         let mr_id = mr_id.value().to_le_bytes();
         let existing = self.0.scan_prefix(mr_id);
         existing.map(|x| {

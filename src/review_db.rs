@@ -1,7 +1,7 @@
 use crate::mr_db::VersionInfo;
 use crate::{get_idx, OPTS};
 use anyhow::anyhow;
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime};
 use enum_map::{Enum, EnumMap};
 use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree};
 use itertools::Itertools;
@@ -325,9 +325,11 @@ pub fn version_stats(
     Ok(stats)
 }
 
-pub fn time_to_chrono(time: Time) -> chrono::NaiveDateTime {
+pub fn time_to_chrono(time: Time) -> NaiveDateTime {
     // FIXME: Include timezone
-    NaiveDateTime::from_timestamp_opt(time.seconds(), 0).unwrap()
+    DateTime::from_timestamp(time.seconds(), 0)
+        .unwrap()
+        .naive_utc()
 }
 
 pub fn show_commit_oneline(repo: &Repository, oid: Oid) -> anyhow::Result<()> {
