@@ -1,5 +1,5 @@
+use crate::fetch::MergeRequestInternalId;
 use git2::Oid;
-use gitlab::MergeRequestInternalId;
 use std::fmt;
 use std::path::Path;
 
@@ -46,7 +46,7 @@ impl Db {
         &self,
         mr_id: MergeRequestInternalId,
     ) -> anyhow::Result<Option<VersionInfo>> {
-        let mr_id = mr_id.value().to_le_bytes();
+        let mr_id = mr_id.0.to_le_bytes();
         let existing = self.0.scan_prefix(mr_id);
         let Some(x) = existing.last() else {
             return Ok(None);
@@ -66,7 +66,7 @@ impl Db {
         &self,
         mr_id: MergeRequestInternalId,
     ) -> impl DoubleEndedIterator<Item = anyhow::Result<VersionInfo>> {
-        let mr_id = mr_id.value().to_le_bytes();
+        let mr_id = mr_id.0.to_le_bytes();
         let existing = self.0.scan_prefix(mr_id);
         existing.map(|x| {
             let (k, v) = x?;
@@ -87,7 +87,7 @@ impl Db {
         info: VersionInfo,
     ) -> anyhow::Result<Option<VersionInfo>> {
         let mut key = [0; 9];
-        key[..8].copy_from_slice(&mr_id.value().to_le_bytes());
+        key[..8].copy_from_slice(&mr_id.0.to_le_bytes());
         key[8] = info.version.0;
         let mut val = Box::new([0; 40]);
         val[..20].copy_from_slice(info.base.as_bytes());

@@ -2,13 +2,12 @@ mod fetch;
 mod mr_db;
 mod review_db;
 
-use crate::fetch::fetch;
+use crate::fetch::{fetch, MergeRequest, MergeRequestState, ProjectId};
 use crate::mr_db::{Version, VersionInfo};
 use crate::review_db::*;
 use anyhow::anyhow;
 use clap::Parser;
 use git2::{Commit, Oid, Repository};
-use gitlab::{MergeRequest, MergeRequestState, ProjectId};
 use globset::GlobSet;
 use once_cell::sync::{Lazy, OnceCell};
 use std::collections::HashSet;
@@ -227,7 +226,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
             match f() {
                 Ok(()) => (),
                 Err(e) => {
-                    error!("{}: {}", mr.iid.value(), e);
+                    error!("{}: {}", mr.iid.0, e);
                     continue;
                 }
             }
@@ -244,7 +243,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 tw,
                 "  {}{}\t{}\t{}\t{}\t({} left to review)",
                 Paint::yellow("!").bold(),
-                Paint::yellow(mr.iid.value()).bold(),
+                Paint::yellow(mr.iid.0).bold(),
                 Paint::blue(&when).bold(),
                 Paint::green(&mr.author.username).bold(),
                 Paint::new(&mr.title).bold(),
@@ -267,7 +266,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 tw,
                 "  {}{}\t{}\t{}\t{}\t",
                 Paint::yellow("!"),
-                Paint::yellow(mr.iid.value()),
+                Paint::yellow(mr.iid.0),
                 Paint::blue(&when),
                 Paint::green(&mr.author.username).italic(),
                 &mr.title,
@@ -302,7 +301,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 tw,
                 "  {}{}\t{}\t{}\t{}\t",
                 Paint::yellow("!"),
-                Paint::yellow(mr.iid.value()),
+                Paint::yellow(mr.iid.0),
                 Paint::blue(&when),
                 Paint::green(&mr.author.username).italic(),
                 &mr.title,
@@ -404,7 +403,7 @@ impl GitlabConfig {
             host: config
                 .get_string("gitlab.url")
                 .unwrap_or_else(|_| "gitlab.com".into()),
-            project_id: ProjectId::new(config.get_i64("gitlab.projectId")? as u64),
+            project_id: ProjectId(config.get_i64("gitlab.projectId")? as u64),
             token: config.get_string("gitlab.privateToken")?,
         })
     }
@@ -605,7 +604,7 @@ fn print_mr(me: &str, mr: &MergeRequest) {
     println!(
         "{}{} ({} -> {})",
         Paint::yellow("merge_request !"),
-        Paint::yellow(mr.iid.value()),
+        Paint::yellow(mr.iid.0),
         mr.source_branch,
         mr.target_branch,
     );
