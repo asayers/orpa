@@ -188,7 +188,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 let latest_rev = db
                     .latest_version(mr.iid)?
                     .ok_or_else(|| anyhow!("Can't find any versions"))?;
-                let n_unreviewed = version_stats(repo, latest_rev)?[Status::New];
+                let n_unreviewed = version_stats(repo, &latest_rev)?[Status::New];
                 if n_unreviewed == 0 {
                     return Ok(());
                 }
@@ -199,12 +199,12 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                     .chain(mr.assignees.iter().flatten())
                     .chain(mr.reviewers.iter().flatten())
                     .any(|x| x.username == me);
-                let watchlist_hit = mr_paths(repo, latest_rev)?
+                let watchlist_hit = mr_paths(repo, &latest_rev)?
                     .iter()
                     .any(|path| watchlist.is_match(path));
                 let partially_reviewed = db
                     .get_versions(mr.iid)
-                    .flat_map(|ver| version_stats(repo, ver?))
+                    .flat_map(|ver| version_stats(repo, &ver?))
                     .any(|stats| stats[Status::Reviewed] > 0);
                 let is_interesting = assigned || watchlist_hit || partially_reviewed;
 
@@ -439,17 +439,17 @@ fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
         .get_versions(mr.iid)
         .collect::<anyhow::Result<Vec<_>>>()?;
     for version in &vers {
-        print_version(repo, *version)?;
+        print_version(repo, version)?;
     }
     println!();
     if let Some(version) = vers.last() {
-        if let Ok((base, head)) = resolve_version(repo, *version) {
+        if let Ok((base, head)) = resolve_version(repo, version) {
             let diff = repo.diff_tree_to_tree(Some(&base.tree()?), Some(&head.tree()?), None)?;
             print_diff_stat(diff)?;
             println!();
         }
 
-        let range = format!("{}..{}", version.base, version.head);
+        let range = format!("{}..{}", &version.base.0, &version.head.0);
         let mut walk = repo.revwalk()?;
         walk.push_range(&range)?;
         walk.set_sorting(git2::Sort::REVERSE)?;
@@ -496,10 +496,10 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
             .get_versions(mr.iid)
             .collect::<anyhow::Result<Vec<_>>>()?;
         for version in &vers {
-            print_version(repo, *version)?;
+            print_version(repo, version)?;
         }
         println!();
-        if let Some((base, head)) = vers.last().and_then(|v| resolve_version(repo, *v).ok()) {
+        if let Some((base, head)) = vers.last().and_then(|v| resolve_version(repo, v).ok()) {
             let diff = repo.diff_tree_to_tree(Some(&base.tree()?), Some(&head.tree()?), None)?;
             print_diff_stat(diff)?;
         }
@@ -516,18 +516,21 @@ fn similar(repo: &Repository, revspec: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn resolve_version(repo: &Repository, version: VersionInfo) -> anyhow::Result<(Commit, Commit)> {
+fn resolve_version<'repo>(
+    repo: &'repo Repository,
+    version: &VersionInfo,
+) -> anyhow::Result<(Commit<'repo>, Commit<'repo>)> {
     Ok(repo
-        .find_commit(version.base)
-        .and_then(|x| repo.find_commit(version.head).map(|y| (x, y)))?)
+        .find_commit(version.base.as_oid())
+        .and_then(|x| repo.find_commit(version.head.as_oid()).map(|y| (x, y)))?)
 }
 
-fn print_version(repo: &Repository, version: VersionInfo) -> anyhow::Result<()> {
+fn print_version(repo: &Repository, version: &VersionInfo) -> anyhow::Result<()> {
     let (base, head) = match resolve_version(repo, version) {
         Ok(x) => x,
         Err(_) => {
-            let base = &version.base.to_string()[..7];
-            let head = &version.head.to_string()[..7];
+            let base = &version.base.0[..7];
+            let head = &version.head.0[..7];
             println!(
                 "    {} {}..{} (commits missing)",
                 version.version,
@@ -578,8 +581,8 @@ fn print_diff_stat(diff: git2::Diff) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn count_reviewed(repo: &Repository, version: VersionInfo) -> anyhow::Result<(usize, usize)> {
-    let range = format!("{}..{}", version.base, version.head);
+fn count_reviewed(repo: &Repository, version: &VersionInfo) -> anyhow::Result<(usize, usize)> {
+    let range = format!("{}..{}", &version.base.0, &version.head.0);
     let mut walk_all = repo.revwalk()?;
     walk_all.push_range(&range)?;
     let n_total = walk_all.count();
@@ -635,9 +638,9 @@ fn print_mr(me: &str, mr: &MergeRequest) {
 }
 
 /// Paths changed by an MR
-fn mr_paths(repo: &Repository, mr: VersionInfo) -> anyhow::Result<Vec<PathBuf>> {
-    let base = repo.find_commit(mr.base)?.tree()?;
-    let head = repo.find_commit(mr.head)?.tree()?;
+fn mr_paths(repo: &Repository, mr: &VersionInfo) -> anyhow::Result<Vec<PathBuf>> {
+    let base = repo.find_commit(mr.base.as_oid())?.tree()?;
+    let head = repo.find_commit(mr.head.as_oid())?.tree()?;
     let diff = repo.diff_tree_to_tree(Some(&base), Some(&head), None)?;
     let mut paths = HashSet::<&Path>::default();
     for delta in diff.deltas() {

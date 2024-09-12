@@ -18,7 +18,19 @@ pub struct MergeRequestInternalId(pub u64);
 pub struct ProjectId(pub u64);
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
-pub struct ObjectId(String);
+pub struct ObjectId(pub String);
+
+impl From<Oid> for ObjectId {
+    fn from(oid: Oid) -> Self {
+        ObjectId(oid.to_string())
+    }
+}
+
+impl ObjectId {
+    pub fn as_oid(&self) -> Oid {
+        Oid::from_str(&self.0).unwrap()
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MergeRequestState {
@@ -178,8 +190,8 @@ fn update_versions(
     // should re-check the base each time as well (in case the target
     // branch has changed); however, this means making an API request
     // per-MR, and is slow.
-    let current_head = Oid::from_str(&mr.sha.as_ref().unwrap().0)?;
-    if latest.map(|x| x.head) == Some(current_head) {
+    let current_head = mr.sha.as_ref().unwrap();
+    if latest.as_ref().map(|x| &x.head) == Some(current_head) {
         info!("Skipping MR since its head rev hasn't changed");
         return Ok(());
     }
@@ -190,22 +202,22 @@ fn update_versions(
             info!("Falling back to recording the current state as the lastest version");
             let info = VersionInfo {
                 version: latest.map_or(Version(0), |x| Version(x.version.0 + 1)),
-                base: mr_base(repo, gl, config.project_id, mr, current_head)?,
-                head: current_head,
+                base: mr_base(repo, gl, config.project_id, mr, current_head.as_oid())?,
+                head: current_head.clone(),
             };
             vec![info]
         }
     };
-    for &info in &recent_versions {
-        let prev = db.insert_version(mr.iid, info)?;
-        if let Some(prev) = prev {
+    for info in &recent_versions {
+        let prev = db.insert_version(mr.iid, info.clone())?;
+        if let Some(prev) = &prev {
             if prev != info {
                 warn!("Changed existing version! Was {prev}, now {info}");
             }
         } else {
             let ref_name = format!("refs/orpa/{}_{}/{}", mr_iid, mr.source_branch, info.version);
             let reflog_msg = format!("orpa: creating ref for !{} {}", mr_iid, info.version);
-            match repo.reference(&ref_name, info.head, false, &reflog_msg) {
+            match repo.reference(&ref_name, info.head.as_oid(), false, &reflog_msg) {
                 Ok(_) => info!("Created ref {ref_name}"),
                 Err(e) => error!("Couldn't create ref {ref_name}: {e}"),
             }
@@ -224,10 +236,10 @@ fn mr_base<'a>(
     project_id: ProjectId,
     mr: &'a MergeRequest,
     head: Oid,
-) -> anyhow::Result<Oid> {
-    if let Some(x) = mr.diff_refs.as_ref().and_then(|x| x.base_sha.as_ref()) {
+) -> anyhow::Result<ObjectId> {
+    if let Some(x) = mr.diff_refs.as_ref().and_then(|x| x.base_sha.clone()) {
         // They told us the base; good - use that.
-        Ok(Oid::from_str(&x.0)?)
+        Ok(x)
     } else {
         // Looks like we're gonna have to work it out ourselves...
         use gitlab::api::{projects::repository::branches::Branch, Query};
@@ -253,8 +265,9 @@ fn mr_base<'a>(
             .build()
             .map_err(anyhow::Error::msg)?
             .query(gl)?;
-        let target = Oid::from_str(&branch.commit.unwrap().id.0)?;
-        Ok(repo.merge_base(head, target)?)
+        let target = branch.commit.unwrap().id.as_oid();
+        let base = repo.merge_base(head, target)?;
+        Ok(base.into())
     }
 }
 
@@ -278,17 +291,17 @@ fn query_versions(
         .send()?
         .json()?;
 
-    fn json_to_base(x: &serde_json::Value) -> anyhow::Result<Oid> {
+    fn json_to_base(x: &serde_json::Value) -> anyhow::Result<ObjectId> {
         x["base_commit_sha"]
             .as_str()
             .ok_or_else(|| anyhow!("Bad string"))
-            .and_then(|x| Ok(Oid::from_str(x)?))
+            .map(|x| ObjectId(x.to_owned()))
     }
-    fn json_to_head(x: &serde_json::Value) -> anyhow::Result<Oid> {
+    fn json_to_head(x: &serde_json::Value) -> anyhow::Result<ObjectId> {
         x["head_commit_sha"]
             .as_str()
             .ok_or_else(|| anyhow!("Bad string"))
-            .and_then(|x| Ok(Oid::from_str(x)?))
+            .map(|x| ObjectId(x.to_owned()))
     }
 
     let start_at = match resp.first() {

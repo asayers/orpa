@@ -1,4 +1,4 @@
-use crate::fetch::MergeRequestInternalId;
+use crate::fetch::{MergeRequestInternalId, ObjectId};
 use git2::Oid;
 use std::fmt;
 use std::path::Path;
@@ -14,17 +14,17 @@ use std::path::Path;
 /// Values: the base OID (20 bytes) followed by the head OID (20 bytes).
 pub struct Db(sled::Db);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VersionInfo {
     pub version: Version,
     // TODO: pub time: DateTime,
-    pub base: Oid,
-    pub head: Oid,
+    pub base: ObjectId,
+    pub head: ObjectId,
 }
 
 impl fmt::Display for VersionInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}: {}..{}", self.version, self.base, self.head)
+        write!(f, "{}: {}..{}", self.version, self.base.0, self.head.0)
     }
 }
 
@@ -53,8 +53,8 @@ impl Db {
         };
         let (k, v) = x?;
         let version = Version(k[8]);
-        let base = Oid::from_bytes(&v[..20])?;
-        let head = Oid::from_bytes(&v[20..])?;
+        let base = ObjectId::from(Oid::from_bytes(&v[..20])?);
+        let head = ObjectId::from(Oid::from_bytes(&v[20..])?);
         Ok(Some(VersionInfo {
             version,
             base,
@@ -71,8 +71,8 @@ impl Db {
         existing.map(|x| {
             let (k, v) = x?;
             let version = Version(k[8]);
-            let base = Oid::from_bytes(&v[..20])?;
-            let head = Oid::from_bytes(&v[20..])?;
+            let base = ObjectId::from(Oid::from_bytes(&v[..20])?);
+            let head = ObjectId::from(Oid::from_bytes(&v[20..])?);
             Ok(VersionInfo {
                 version,
                 base,
@@ -90,15 +90,15 @@ impl Db {
         key[..8].copy_from_slice(&mr_id.0.to_le_bytes());
         key[8] = info.version.0;
         let mut val = Box::new([0; 40]);
-        val[..20].copy_from_slice(info.base.as_bytes());
-        val[20..].copy_from_slice(info.head.as_bytes());
+        val[..20].copy_from_slice(info.base.as_oid().as_bytes());
+        val[20..].copy_from_slice(info.head.as_oid().as_bytes());
         self.0
             .insert(key, val as Box<[u8]>)?
             .map(|xs| {
                 anyhow::Ok(VersionInfo {
                     version: info.version,
-                    base: Oid::from_bytes(&xs[..20])?,
-                    head: Oid::from_bytes(&xs[20..])?,
+                    base: ObjectId::from(Oid::from_bytes(&xs[..20])?),
+                    head: ObjectId::from(Oid::from_bytes(&xs[20..])?),
                 })
             })
             .transpose()

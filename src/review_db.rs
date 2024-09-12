@@ -298,12 +298,12 @@ pub fn walk_new(
     Ok(())
 }
 
-pub fn walk_version(
-    repo: &Repository,
-    ver: VersionInfo,
-) -> anyhow::Result<impl Iterator<Item = anyhow::Result<(Oid, Status)>> + '_> {
+pub fn walk_version<'repo>(
+    repo: &'repo Repository,
+    ver: &VersionInfo,
+) -> anyhow::Result<impl Iterator<Item = anyhow::Result<(Oid, Status)>> + 'repo> {
     let mut walk = repo.revwalk()?;
-    walk.push_range(&format!("{}..{}", ver.base, ver.head))?;
+    walk.push_range(&format!("{}..{}", &ver.base.0, &ver.head.0))?;
     Ok(walk
         .map(move |oid| {
             let oid = oid?;
@@ -315,7 +315,7 @@ pub fn walk_version(
 
 pub fn version_stats(
     repo: &Repository,
-    ver: VersionInfo,
+    ver: &VersionInfo,
 ) -> anyhow::Result<EnumMap<Status, usize>> {
     let mut stats = EnumMap::default();
     for x in walk_version(repo, ver)? {
