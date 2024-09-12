@@ -1,10 +1,10 @@
-use crate::{db_path, GitlabConfig, Version, VersionInfo};
+use crate::{db_path, mr_db::MRWithVersions, GitlabConfig, Version, VersionInfo};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use git2::{Oid, Repository};
 use gitlab::Gitlab;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use tracing::*;
 
@@ -91,9 +91,8 @@ pub struct DiffRefs {
 pub fn fetch(repo: &Repository) -> anyhow::Result<()> {
     let config = GitlabConfig::load(repo)?;
 
-    info!("Opening the database");
     let db_path = db_path(repo);
-    let db = crate::mr_db::Db::open(&db_path)?;
+    let mr_dir = db_path.join("merge_requests");
 
     info!("Connecting to gitlab at {}", config.host);
     let gl = Gitlab::new(&config.host, &config.token)?;
@@ -109,21 +108,27 @@ pub fn fetch(repo: &Repository) -> anyhow::Result<()> {
         paged(query, Pagination::All).query(&gl)?
     };
 
-    info!("Caching the MR info");
-    let mr_dir = db_path.join("merge_requests");
-    std::fs::create_dir_all(&mr_dir)?;
-    for mr in &mrs {
-        let path = mr_dir.join(mr.iid.0.to_string());
-        serde_json::to_writer(File::create(path)?, &mr)?;
-    }
-
     info!("Updating the DB with new versions");
+    std::fs::create_dir_all(&mr_dir)?;
     let client = reqwest::blocking::Client::new();
     for mr in &mrs {
         let _s = tracing::info_span!("", mr = mr.iid.0).entered();
-        if let Err(e) = update_versions(&db, &client, &config, repo, &gl, mr) {
+        let path = mr_dir.join(mr.iid.0.to_string());
+        let mut versions = match std::fs::read_to_string(&path) {
+            Ok(txt) => serde_json::from_str::<MRWithVersions>(&txt)?.versions,
+            Err(_) => BTreeMap::default(),
+        };
+        if let Err(e) = update_versions(mr, &mut versions, &client, &config, repo, &gl) {
             error!("{e}");
         }
+
+        serde_json::to_writer(
+            File::create(path)?,
+            &MRWithVersions {
+                mr: mr.clone(),
+                versions,
+            },
+        )?;
     }
 
     info!("Checking in on open MRs we didn't get an update for");
@@ -135,11 +140,13 @@ pub fn fetch(repo: &Repository) -> anyhow::Result<()> {
             // We already saw this one, it's still open
             continue;
         }
-        let mr: MergeRequest = serde_json::from_reader(File::open(entry.path())?)?;
+        let MRWithVersions { mr, mut versions } =
+            serde_json::from_reader(File::open(entry.path())?)?;
         if mr.state != MergeRequestState::Opened {
             // This MR is closed, that's why we didn't see it in the results
             continue;
         }
+
         info!("What has happened to !{}..?", mr.iid.0);
         let q = {
             use gitlab::api::projects::merge_requests::*;
@@ -162,46 +169,52 @@ pub fn fetch(repo: &Repository) -> anyhow::Result<()> {
                 continue;
             }
         };
-        serde_json::to_writer(File::create(entry.path())?, &new_info)?;
         println!(
             "Status of !{} changed to {}",
             mr.iid.0,
             crate::fmt_state(new_info.state)
         );
-        if let Err(e) = update_versions(&db, &client, &config, repo, &gl, &new_info) {
+        if let Err(e) = update_versions(&new_info, &mut versions, &client, &config, repo, &gl) {
             error!("{e}");
         }
+        serde_json::to_writer(
+            File::create(entry.path())?,
+            &MRWithVersions {
+                mr: new_info,
+                versions,
+            },
+        )?;
     }
 
     Ok(())
 }
 
 fn update_versions(
-    db: &crate::mr_db::Db,
+    mr: &MergeRequest,
+    versions: &mut BTreeMap<Version, VersionInfo>,
     client: &reqwest::blocking::Client,
     config: &GitlabConfig,
     repo: &Repository,
     gl: &Gitlab,
-    mr: &MergeRequest,
 ) -> anyhow::Result<()> {
     let mr_iid = mr.iid.0;
-    let latest = db.get_versions(mr.iid).last().transpose()?;
+    let latest = versions.last_key_value();
     // We only update the DB if the head has changed.  Technically we
     // should re-check the base each time as well (in case the target
     // branch has changed); however, this means making an API request
     // per-MR, and is slow.
     let current_head = mr.sha.as_ref().unwrap();
-    if latest.as_ref().map(|x| &x.head) == Some(current_head) {
+    if latest.as_ref().map(|x| &x.1.head) == Some(current_head) {
         info!("Skipping MR since its head rev hasn't changed");
         return Ok(());
     }
-    let recent_versions = match query_versions(client, config, mr.iid, db) {
+    let recent_versions = match query_versions(client, config, mr.iid, versions) {
         Ok(x) => x,
         Err(e) => {
             error!("Couldn't query the version history: {e}");
             info!("Falling back to recording the current state as the lastest version");
             let info = VersionInfo {
-                version: latest.map_or(Version(0), |x| Version(x.version.0 + 1)),
+                version: latest.map_or(Version(0), |x| Version(x.0 .0 + 1)),
                 base: mr_base(repo, gl, config.project_id, mr, current_head.as_oid())?,
                 head: current_head.clone(),
             };
@@ -209,7 +222,7 @@ fn update_versions(
         }
     };
     for info in &recent_versions {
-        let prev = db.insert_version(mr.iid, info.clone())?;
+        let prev = versions.insert(info.version, info.clone());
         if let Some(prev) = &prev {
             if prev != info {
                 warn!("Changed existing version! Was {prev}, now {info}");
@@ -279,7 +292,7 @@ fn query_versions(
     client: &reqwest::blocking::Client,
     config: &GitlabConfig,
     mr_iid: MergeRequestInternalId,
-    db: &crate::mr_db::Db,
+    versions: &BTreeMap<Version, VersionInfo>,
 ) -> anyhow::Result<Vec<VersionInfo>> {
     info!("Querying for versions");
     let resp: Vec<serde_json::Value> = client
@@ -308,14 +321,14 @@ fn query_versions(
         Some(first) => {
             let base = json_to_base(first)?;
             let head = json_to_head(first)?;
-            db.get_versions(mr_iid)
+            versions
+                .iter()
                 .rev()
-                .filter_map(|x| x.ok())
-                .find(|x| x.head == head && x.base == base)
-                .map(|x| x.version)
+                .find(|(_, x)| x.head == head && x.base == base)
+                .map(|(x, _)| *x)
                 .or_else(|| {
-                    let latest = db.latest_version(mr_iid).ok()??;
-                    Some(Version(latest.version.0 + 1))
+                    let (latest, _) = versions.last_key_value()?;
+                    Some(Version(latest.0 + 1))
                 })
                 .unwrap_or(Version(0))
         }

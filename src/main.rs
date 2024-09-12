@@ -9,9 +9,10 @@ use anyhow::anyhow;
 use clap::Parser;
 use git2::{Commit, Oid, Repository};
 use globset::GlobSet;
+use mr_db::MRWithVersions;
 use once_cell::sync::{Lazy, OnceCell};
 use std::collections::HashSet;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::Path;
 use std::{fs::File, path::PathBuf};
 use tabwriter::TabWriter;
@@ -160,7 +161,6 @@ fn load_watchlist(repo: &Repository) -> anyhow::Result<GlobSet> {
 }
 
 fn summary(repo: &Repository) -> anyhow::Result<()> {
-    let db = mr_db::Db::open(&db_path(repo))?;
     if let Ok(mrs) = cached_mrs(repo) {
         let config = repo.config()?;
         let me = config.get_string("gitlab.username")?;
@@ -173,7 +173,7 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
         let mut old = vec![];
         let mut own_recent = vec![];
         let mut own_old = vec![];
-        for mr in &mrs {
+        for MRWithVersions { mr, versions } in &mrs {
             if mr.author.username == me {
                 let too_old = chrono::Utc::now() - mr.updated_at > chrono::Duration::weeks(13);
                 let too_many = own_recent.len() >= 10;
@@ -185,10 +185,10 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                 continue;
             }
             let mut f = || {
-                let latest_rev = db
-                    .latest_version(mr.iid)?
+                let (_, latest_rev) = versions
+                    .last_key_value()
                     .ok_or_else(|| anyhow!("Can't find any versions"))?;
-                let n_unreviewed = version_stats(repo, &latest_rev)?[Status::New];
+                let n_unreviewed = version_stats(repo, latest_rev)?[Status::New];
                 if n_unreviewed == 0 {
                     return Ok(());
                 }
@@ -199,12 +199,12 @@ fn summary(repo: &Repository) -> anyhow::Result<()> {
                     .chain(mr.assignees.iter().flatten())
                     .chain(mr.reviewers.iter().flatten())
                     .any(|x| x.username == me);
-                let watchlist_hit = mr_paths(repo, &latest_rev)?
+                let watchlist_hit = mr_paths(repo, latest_rev)?
                     .iter()
                     .any(|path| watchlist.is_match(path));
-                let partially_reviewed = db
-                    .get_versions(mr.iid)
-                    .flat_map(|ver| version_stats(repo, &ver?))
+                let partially_reviewed = versions
+                    .iter()
+                    .flat_map(|(_, ver)| version_stats(repo, ver))
                     .any(|stats| stats[Status::Reviewed] > 0);
                 let is_interesting = assigned || watchlist_hit || partially_reviewed;
 
@@ -413,14 +413,14 @@ fn db_path(repo: &Repository) -> PathBuf {
     OPTS.db.clone().unwrap_or_else(|| repo.path().join("orpa"))
 }
 
-fn cached_mrs(repo: &Repository) -> anyhow::Result<Vec<MergeRequest>> {
+fn cached_mrs(repo: &Repository) -> anyhow::Result<Vec<MRWithVersions>> {
     let mr_dir = db_path(repo).join("merge_requests");
     let mut mrs = vec![];
     for entry in std::fs::read_dir(mr_dir)? {
-        let mr: MergeRequest = serde_json::from_reader(File::open(entry?.path())?)?;
+        let mr: MRWithVersions = serde_json::from_reader(File::open(entry?.path())?)?;
         mrs.push(mr);
     }
-    mrs.sort_by_key(|mr| std::cmp::Reverse(mr.updated_at));
+    mrs.sort_by_key(|mr| std::cmp::Reverse(mr.mr.updated_at));
     Ok(mrs)
 }
 
@@ -428,21 +428,17 @@ fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
     pager::Pager::with_pager("less -FRSX").setup();
     let target = target.trim_matches(|c: char| !c.is_numeric());
     let path = db_path(repo).join("merge_requests").join(target);
-    let mr: MergeRequest = serde_json::from_reader(File::open(path)?)?;
+    let MRWithVersions { mr, versions } = serde_json::from_reader(File::open(path)?)?;
 
-    let db = mr_db::Db::open(&db_path(repo))?;
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
     print_mr(&me, &mr);
     println!();
-    let vers = db
-        .get_versions(mr.iid)
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    for version in &vers {
+    for version in versions.values() {
         print_version(repo, version)?;
     }
     println!();
-    if let Some(version) = vers.last() {
+    if let Some((_, version)) = versions.last_key_value() {
         if let Ok((base, head)) = resolve_version(repo, version) {
             let diff = repo.diff_tree_to_tree(Some(&base.tree()?), Some(&head.tree()?), None)?;
             print_diff_stat(diff)?;
@@ -486,20 +482,19 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
     pager::Pager::with_pager("less -FRSX").setup();
     let config = repo.config()?;
     let me = config.get_string("gitlab.username")?;
-    let db = mr_db::Db::open(&db_path(repo))?;
     let mut mrs = cached_mrs(repo)?;
-    mrs.retain(|mr| include_all || (!mr.draft && mr.author.username != me));
-    for mr in mrs {
+    mrs.retain(|mr| include_all || (!mr.mr.draft && mr.mr.author.username != me));
+    for MRWithVersions { mr, versions } in mrs {
         print_mr(&me, &mr);
         println!();
-        let vers = db
-            .get_versions(mr.iid)
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        for version in &vers {
+        for version in versions.values() {
             print_version(repo, version)?;
         }
         println!();
-        if let Some((base, head)) = vers.last().and_then(|v| resolve_version(repo, v).ok()) {
+        if let Some((base, head)) = versions
+            .last_key_value()
+            .and_then(|(_, v)| resolve_version(repo, v).ok())
+        {
             let diff = repo.diff_tree_to_tree(Some(&base.tree()?), Some(&head.tree()?), None)?;
             print_diff_stat(diff)?;
         }
