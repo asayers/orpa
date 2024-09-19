@@ -460,8 +460,8 @@ fn merge_request(repo: &Repository, target: String) -> anyhow::Result<()> {
     let me = config.get_string("gitlab.username")?;
     print_mr(&me, &mr);
     println!();
-    for version in versions.values() {
-        print_version(repo, version)?;
+    for (&version, info) in &versions {
+        print_version(repo, version, info)?;
     }
     println!();
     if let Some((_, version)) = versions.last_key_value() {
@@ -513,8 +513,8 @@ fn merge_requests(repo: &Repository, include_all: bool) -> anyhow::Result<()> {
     for MRWithVersions { mr, versions } in mrs {
         print_mr(&me, &mr);
         println!();
-        for version in versions.values() {
-            print_version(repo, version)?;
+        for (&version, info) in &versions {
+            print_version(repo, version, info)?;
         }
         println!();
         if let Some((base, head)) = versions
@@ -546,15 +546,15 @@ fn resolve_version<'repo>(
         .and_then(|x| repo.find_commit(version.head.as_oid()).map(|y| (x, y)))?)
 }
 
-fn print_version(repo: &Repository, version: &VersionInfo) -> anyhow::Result<()> {
-    let (base, head) = match resolve_version(repo, version) {
+fn print_version(repo: &Repository, version: Version, info: &VersionInfo) -> anyhow::Result<()> {
+    let (base, head) = match resolve_version(repo, info) {
         Ok(x) => x,
         Err(_) => {
-            let base = &version.base.0[..7];
-            let head = &version.head.0[..7];
+            let base = &info.base.0[..7];
+            let head = &info.head.0[..7];
             println!(
                 "    {} {}..{} (commits missing)",
-                version.version,
+                version,
                 Paint::blue(base),
                 Paint::magenta(head),
             );
@@ -567,13 +567,13 @@ fn print_version(repo: &Repository, version: &VersionInfo) -> anyhow::Result<()>
         let head = head.as_object().short_id()?;
         print!(
             "    {} {}..{}",
-            version.version,
+            version,
             Paint::blue(base.as_str().unwrap_or("")),
             Paint::magenta(head.as_str().unwrap_or("")),
         );
     }
 
-    let (n_unreviewed, n_total) = count_reviewed(repo, version)?;
+    let (n_unreviewed, n_total) = count_reviewed(repo, info)?;
     if n_unreviewed != 0 {
         print!(
             " ({}/{} reviewed)",
@@ -602,8 +602,8 @@ fn print_diff_stat(diff: git2::Diff) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn count_reviewed(repo: &Repository, version: &VersionInfo) -> anyhow::Result<(usize, usize)> {
-    let range = format!("{}..{}", &version.base.0, &version.head.0);
+fn count_reviewed(repo: &Repository, info: &VersionInfo) -> anyhow::Result<(usize, usize)> {
+    let range = format!("{}..{}", &info.base.0, &info.head.0);
     let mut walk_all = repo.revwalk()?;
     walk_all.push_range(&range)?;
     let n_total = walk_all.count();

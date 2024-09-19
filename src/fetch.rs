@@ -213,23 +213,23 @@ fn update_versions(
         Err(e) => {
             error!("Couldn't query the version history: {e}");
             info!("Falling back to recording the current state as the lastest version");
+            let version = latest.map_or(Version(0), |x| Version(x.0 .0 + 1));
             let info = VersionInfo {
-                version: latest.map_or(Version(0), |x| Version(x.0 .0 + 1)),
                 base: mr_base(repo, gl, config.project_id, mr, current_head.as_oid())?,
                 head: current_head.clone(),
             };
-            vec![info]
+            vec![(version, info)]
         }
     };
-    for info in &recent_versions {
-        let prev = versions.insert(info.version, info.clone());
+    for (version, info) in &recent_versions {
+        let prev = versions.insert(*version, info.clone());
         if let Some(prev) = &prev {
             if prev != info {
                 warn!("Changed existing version! Was {prev}, now {info}");
             }
         } else {
-            let ref_name = format!("refs/orpa/{}_{}/{}", mr_iid, mr.source_branch, info.version);
-            let reflog_msg = format!("orpa: creating ref for !{} {}", mr_iid, info.version);
+            let ref_name = format!("refs/orpa/{}_{}/{}", mr_iid, mr.source_branch, version);
+            let reflog_msg = format!("orpa: creating ref for !{} {}", mr_iid, version);
             match repo.reference(&ref_name, info.head.as_oid(), false, &reflog_msg) {
                 Ok(_) => info!("Created ref {ref_name}"),
                 Err(e) => error!("Couldn't create ref {ref_name}: {e}"),
@@ -237,8 +237,8 @@ fn update_versions(
             println!("Inserted {info}");
         }
     }
-    if let Some(info) = recent_versions.last() {
-        println!("Updated !{mr_iid} to {}", info.version);
+    if let Some((version, _)) = recent_versions.last() {
+        println!("Updated !{mr_iid} to {}", version);
     }
     Ok(())
 }
@@ -293,7 +293,7 @@ fn query_versions(
     config: &GitlabConfig,
     mr_iid: MergeRequestInternalId,
     versions: &BTreeMap<Version, VersionInfo>,
-) -> anyhow::Result<Vec<VersionInfo>> {
+) -> anyhow::Result<Vec<(Version, VersionInfo)>> {
     info!("Querying for versions");
     let resp: Vec<serde_json::Value> = client
         .get(format!(
@@ -338,11 +338,12 @@ fn query_versions(
         .rev()
         .enumerate()
         .map(|(i, x)| {
-            Ok(VersionInfo {
-                version: Version(start_at.0 + i as u8),
+            let version = Version(start_at.0 + i as u8);
+            let info = VersionInfo {
                 base: json_to_base(&x)?,
                 head: json_to_head(&x)?,
-            })
+            };
+            Ok((version, info))
         })
         .collect()
 }

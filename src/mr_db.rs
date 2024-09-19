@@ -13,7 +13,6 @@ pub struct MRWithVersions {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VersionInfo {
-    pub version: Version,
     // TODO: pub time: DateTime,
     pub base: ObjectId,
     pub head: ObjectId,
@@ -21,7 +20,7 @@ pub struct VersionInfo {
 
 impl fmt::Display for VersionInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}: {}..{}", self.version, self.base.0, self.head.0)
+        write!(f, "{}..{}", self.base.0, self.head.0)
     }
 }
 
