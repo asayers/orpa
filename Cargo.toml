@@ -10,8 +10,8 @@ repository = "https://github.com/asayers/orpa"
 
 [dependencies]
 anyhow = "1.0.89"
+bpaf = { version = "0.9.13", features = ["derive"] }
 chrono = "0.4.38"
-clap = { version = "3.2.25", features = ["derive"] }
 enum-map = "2.7.3"
 git2 = "0.15.0"
 gitlab = "0.1703.0"

@@ -6,7 +6,7 @@ use crate::fetch::{fetch, MergeRequest, MergeRequestState, ProjectId};
 use crate::mr_db::{Version, VersionInfo};
 use crate::review_db::*;
 use anyhow::anyhow;
-use clap::Parser;
+use bpaf::{Bpaf, Parser};
 use git2::{Commit, Oid, Repository};
 use globset::GlobSet;
 use mr_db::MRWithVersions;
@@ -19,38 +19,48 @@ use tabwriter::TabWriter;
 use tracing::*;
 use yansi::Paint;
 
-pub static OPTS: LazyLock<Opts> = LazyLock::new(Opts::from_args);
+pub static OPTS: LazyLock<Opts> = LazyLock::new(|| opts().run());
 
 /// A tool for tracking private code review
-#[derive(Parser, Debug)]
+#[derive(Bpaf, Debug)]
 pub struct Opts {
-    #[clap(subcommand)]
-    pub cmd: Option<Cmd>,
-    #[clap(long)]
+    #[bpaf(long)]
     pub db: Option<std::path::PathBuf>,
-    #[clap(long)]
+    #[bpaf(long)]
     pub dedup: bool,
-    #[clap(long)]
+    #[bpaf(long)]
     pub notes_ref: Option<String>,
+    #[bpaf(external, fallback(Cmd::default()))]
+    pub cmd: Cmd,
 }
-#[derive(Parser, Debug, Clone)]
+#[derive(Bpaf, Debug, Clone, Default)]
 pub enum Cmd {
+    #[default]
+    Summary,
     /// Summarize the review status of a branch
+    #[bpaf(command)]
     Branch {
+        #[bpaf(positional)]
         range: Option<String>,
     },
     /// Inspect the oldest unreviewed commit
+    #[bpaf(command)]
     Next {
+        #[bpaf(positional)]
         range: Option<String>,
     },
     /// List all unreviewed commits
+    #[bpaf(command)]
     List {
+        #[bpaf(positional)]
         range: Option<String>,
     },
     /// Show the status of a commit
+    #[bpaf(command)]
     Show {
         /// The commit to show the status of.  It can be a revision such as
         /// "c13f2b6", or a ref such as "origin/master" or "HEAD".
+        #[bpaf(positional)]
         revspec: String,
     },
     /// Attach a note to a commit
@@ -60,40 +70,53 @@ pub enum Cmd {
     /// `orpa mark HEAD Tested` will attach the following note to HEAD:
     /// "Tested-by: Joe Smith <joe@smith.net>".  If no note is provided,
     /// the verb "Reviewed" is used.
+    #[bpaf(command)]
     Mark {
         /// The commit to attach a note to.  It can be a revision such as
         /// "c13f2b6", or a ref such as "origin/master" or "HEAD".
+        #[bpaf(positional)]
         revspec: String,
         /// The note to attach.
+        #[bpaf(positional)]
         note: Option<String>,
     },
     /// Approve a commit and all its ancestors
+    #[bpaf(command)]
     Checkpoint {
         /// The commit to mark as a checkpoint.  It can be a revision such as
         /// "c13f2b6", or a ref such as "origin/master" or "HEAD".
+        #[bpaf(positional)]
         revspec: String,
     },
     /// Speed up future operations
-    GC,
+    #[bpaf(command)]
+    Gc,
     /// Sync MRs from gitlab
+    #[bpaf(command)]
     Fetch,
     /// Show a specific merge request
+    #[bpaf(command)]
     Mr {
         /// The merge request to show.  Must be an integer.  It can optionally
         /// be prefixed with a '!'.
+        #[bpaf(positional)]
         id: String,
     },
     /// Show merge requests
     ///
     /// The user's own MRs are hidden by default, as are WIP MRs.
+    #[bpaf(command)]
     Mrs {
         /// Include hidden MRs.
-        #[clap(long, short)]
+        #[bpaf(long, short)]
         all: bool,
     },
     /// Show recent reviews
+    #[bpaf(command)]
     Recent,
+    #[bpaf(command)]
     Similar {
+        #[bpaf(positional)]
         revspec: String,
     },
 }
@@ -123,32 +146,32 @@ fn main() -> anyhow::Result<()> {
     }
     let repo = Repository::open_from_env()?;
     match OPTS.cmd.clone() {
-        None => summary(&repo),
-        Some(Cmd::Branch { range }) => branch(&repo, range),
-        Some(Cmd::Next { range }) => next(&repo, range),
-        Some(Cmd::List { range }) => list(&repo, range),
-        Some(Cmd::Show { revspec }) => show(&repo, &revspec),
-        Some(Cmd::Mark { revspec, note }) => add_note(
+        Cmd::Summary => summary(&repo),
+        Cmd::Branch { range } => branch(&repo, range),
+        Cmd::Next { range } => next(&repo, range),
+        Cmd::List { range } => list(&repo, range),
+        Cmd::Show { revspec } => show(&repo, &revspec),
+        Cmd::Mark { revspec, note } => add_note(
             &repo,
             repo.revparse_single(&revspec)?.peel_to_commit()?.id(),
             note.as_ref().map_or("Reviewed", |x| x.as_str()),
         ),
-        Some(Cmd::Checkpoint { revspec }) => append_note(
+        Cmd::Checkpoint { revspec } => append_note(
             &repo,
             repo.revparse_single(&revspec)?.peel_to_commit()?.id(),
             "checkpoint",
         ),
-        Some(Cmd::GC) => Err(anyhow!("Auto-checkpointing not implemented yet")),
-        Some(Cmd::Fetch) => fetch(&repo),
-        Some(Cmd::Mr { id }) => merge_request(&repo, id),
-        Some(Cmd::Mrs { all }) => merge_requests(&repo, all),
-        Some(Cmd::Recent) => {
+        Cmd::Gc => Err(anyhow!("Auto-checkpointing not implemented yet")),
+        Cmd::Fetch => fetch(&repo),
+        Cmd::Mr { id } => merge_request(&repo, id),
+        Cmd::Mrs { all } => merge_requests(&repo, all),
+        Cmd::Recent => {
             for x in review_db::recent_notes(&repo)? {
                 println!("{}", x);
             }
             Ok(())
         }
-        Some(Cmd::Similar { revspec }) => similar(&repo, &revspec),
+        Cmd::Similar { revspec } => similar(&repo, &revspec),
     }
 }
 
