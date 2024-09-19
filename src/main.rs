@@ -150,11 +150,11 @@ fn main() -> anyhow::Result<()> {
 
 fn load_watchlist(repo: &Repository) -> anyhow::Result<GlobSet> {
     use globset::*;
+    let config = repo.config()?;
+    let globs = config.get_string("orpa.watchlist")?;
     let mut watchlist = GlobSetBuilder::new();
-    if let Ok(file) = File::open(db_path(repo).join("watchlist")) {
-        for line in BufReader::new(file).lines() {
-            watchlist.add(Glob::new(&line?)?);
-        }
+    for glob in globs.split(':') {
+        watchlist.add(Glob::new(glob)?);
     }
     Ok(watchlist.build()?)
 }
