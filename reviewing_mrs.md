@@ -39,10 +39,12 @@ look at the third one.
 
 ## Challenge: remembering what you reviewed
 
-The main challenge with this workflow is keeping track of commit ranges.
-Getting the current range is easy enough: your git platform of choice probably
-has a web API which will tell you.  If not, you can use `git merge-base`.
+The main challenge with this workflow is keeping track of commit ranges. You
+want to remember the last set of commits you reviewed, so you can compare it to
+the current range of commits.
 
-However, you do have to remember the commit range as it was the last time
-you reviewed the branch.  As far as I can tell, none of the major platforms
-will help you with this (eg. by giving all historical ranges).
+Gitlab has an API endpoint which can help with this.  It lives at `/api/ v4/
+projects/<id>/merge_requests/<id>/versions` and returns a list of recent
+"versions" of the given MR.  You go through these versions, newest-to-oldest,
+looking for one you've reviewed.
+(Again, this is [tracked using git notes](reviewing_commits.md).)
