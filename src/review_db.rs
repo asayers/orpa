@@ -5,12 +5,12 @@ use chrono::{DateTime, NaiveDateTime};
 use enum_map::{Enum, EnumMap};
 use git2::{Commit, Diff, DiffStatsFormat, ErrorCode, Oid, Repository, Time, Tree};
 use itertools::Itertools;
-use once_cell::sync::OnceCell;
 use sha1::{Digest, Sha1};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::io::Write;
 use std::path::Path;
+use std::sync::{LazyLock, OnceLock};
 use tracing::*;
 use yansi::Paint;
 
@@ -32,11 +32,9 @@ pub fn append_note(repo: &Repository, oid: Oid, new_note: &str) -> anyhow::Resul
 }
 
 fn notes_ref() -> Option<&'static str> {
-    static NOTES_REF: OnceCell<Option<String>> = OnceCell::new();
-    NOTES_REF
-        .get_or_init(|| OPTS.notes_ref.as_ref().map(|x| format!("refs/notes/{}", x)))
-        .as_ref()
-        .map(|x| x.as_str())
+    static NOTES_REF: LazyLock<Option<String>> =
+        LazyLock::new(|| OPTS.notes_ref.as_ref().map(|x| format!("refs/notes/{}", x)));
+    NOTES_REF.as_ref().map(|x| x.as_str())
 }
 
 pub fn get_note(repo: &Repository, oid: Oid) -> anyhow::Result<Option<String>> {
@@ -210,40 +208,43 @@ impl LineIdx {
 }
 
 // TODO: Include addresses from the mailmap
-fn our_email(repo: &Repository) -> anyhow::Result<&'static [u8]> {
-    static SIG: OnceCell<Vec<u8>> = OnceCell::new();
-    SIG.get_or_try_init(|| {
-        let sig = repo.signature()?;
-        Ok(sig.email_bytes().to_vec())
+fn our_email(repo: &Repository) -> &'static [u8] {
+    static SIG: OnceLock<Vec<u8>> = OnceLock::new();
+    SIG.get_or_init(|| {
+        let sig = repo.signature().unwrap();
+        sig.email_bytes().to_vec()
     })
-    .map(|x| x.as_slice())
+    .as_slice()
 }
 
-fn reviewed_commits(repo: &Repository) -> anyhow::Result<&'static HashMap<Oid, bool>> {
-    static REVIEWS: OnceCell<HashMap<Oid, bool>> = OnceCell::new();
-    REVIEWS.get_or_try_init(|| {
-        let mut wtr = repo.blob_writer(None)?;
-        wtr.write_all(b"checkpoint")?;
-        let checkpoint_oid = wtr.commit()?;
-        info!("Checkpoint OID is {}", checkpoint_oid);
+fn reviewed_commits(repo: &Repository) -> &'static HashMap<Oid, bool> {
+    static REVIEWS: OnceLock<HashMap<Oid, bool>> = OnceLock::new();
+    REVIEWS.get_or_init(|| {
+        let f = || {
+            let mut wtr = repo.blob_writer(None)?;
+            wtr.write_all(b"checkpoint")?;
+            let checkpoint_oid = wtr.commit()?;
+            info!("Checkpoint OID is {}", checkpoint_oid);
 
-        let mut reviews = HashMap::new();
-        for x in repo.notes(notes_ref())? {
-            let (note_oid, commit_oid) = x?;
-            reviews.insert(commit_oid, note_oid == checkpoint_oid);
-        }
-        info!("Scanned {} reviews", reviews.len());
-        Ok(reviews)
+            let mut reviews = HashMap::new();
+            for x in repo.notes(notes_ref())? {
+                let (note_oid, commit_oid) = x?;
+                reviews.insert(commit_oid, note_oid == checkpoint_oid);
+            }
+            info!("Scanned {} reviews", reviews.len());
+            anyhow::Ok(reviews)
+        };
+        f().unwrap()
     })
 }
 
 pub fn lookup(repo: &Repository, oid: Oid) -> anyhow::Result<Status> {
-    match reviewed_commits(repo)?.get(&oid) {
+    match reviewed_commits(repo).get(&oid) {
         Some(true) => Ok(Status::Checkpoint),
         Some(false) => Ok(Status::Reviewed),
         None => {
             let commit = repo.find_commit(oid)?;
-            if commit.author().email_bytes() == our_email(repo)? {
+            if commit.author().email_bytes() == our_email(repo) {
                 Ok(Status::Ours)
             } else if commit.parent_count() > 1 {
                 Ok(Status::Merge)

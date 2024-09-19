@@ -10,16 +10,16 @@ use clap::Parser;
 use git2::{Commit, Oid, Repository};
 use globset::GlobSet;
 use mr_db::MRWithVersions;
-use once_cell::sync::{Lazy, OnceCell};
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::Path;
+use std::sync::{LazyLock, OnceLock};
 use std::{fs::File, path::PathBuf};
 use tabwriter::TabWriter;
 use tracing::*;
 use yansi::Paint;
 
-pub static OPTS: Lazy<Opts> = Lazy::new(Opts::from_args);
+pub static OPTS: LazyLock<Opts> = LazyLock::new(Opts::from_args);
 
 /// A tool for tracking private code review
 #[derive(Parser, Debug)]
@@ -99,12 +99,15 @@ pub enum Cmd {
 }
 
 pub fn get_idx(repo: &Repository) -> anyhow::Result<&LineIdx> {
-    static LINE_IDX: OnceCell<LineIdx> = OnceCell::new();
-    LINE_IDX.get_or_try_init(|| {
+    static LINE_IDX: OnceLock<LineIdx> = OnceLock::new();
+    if let Some(value) = LINE_IDX.get() {
+        Ok(value)
+    } else {
         let idx = LineIdx::open(&db_path(repo))?;
         idx.refresh(repo)?;
-        Ok(idx)
-    })
+        let _ = LINE_IDX.set(idx);
+        Ok(LINE_IDX.get().unwrap())
+    }
 }
 
 fn main() -> anyhow::Result<()> {
